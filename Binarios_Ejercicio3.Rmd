@@ -1,0 +1,582 @@
+---
+title: "Comparación estadistica sobre 3 insecticidas"
+output:
+  bookdown::pdf_document2: 
+    number_sections: no
+    toc: no
+    highlight: tango
+    latex_engine: xelatex
+header-includes: 
+   - \usepackage{float}
+date: "23/03/2026"
+geometry: margin=1.0cm
+urlcolor: blue
+---
+
+```{r setup, include = FALSE}
+
+#Empezamos limpiando nuestro ambiente
+rm(list = ls(all.names = TRUE))
+
+# Configuración global de los bloques de código (chunk's)
+knitr::opts_chunk$set(
+	echo = FALSE,
+	fig.align = "center",
+	fig.dim = c(6.0, 5.0),
+	fig.pos = "H",
+#Agregamos configuraciones para evitar mensajes de advertencias y de errores en el archivo
+	message = FALSE,
+	warning = FALSE,
+	error = F
+)
+# Comentario para el lector: Hay chunks con nombres algo largos, para evitar que el texto se vea lleno de pura referencia de chunks largos se optó por trabajar con las iniciales de dicho modelo y en el mismo chunk en la primera línea se adjunta el significado del mismo. Por ejemplo, si un chunk se llamaba: "Prueba F asociada a la tabla ANOVA ahora se llamará: PFATA" 
+# Otro comentario: Cambia el include = FALSE por echo = FALSE para poder visualizar los plots y pruebas de hipótesis
+
+```
+
+```{r Leemos nuestros datos, include=FALSE}
+df_preg3B <- read.csv("C:/Users/admin/Downloads/Preg3B.csv")
+summary(df_preg3B)
+str(df_preg3B)
+```
+
+## Inferencia acerca de la efectividad de insecticidas
+
+Comenzando con este análisis, conviene decir que se trabajará con las variables en español. Habiendo aclarado este punto, deseamos evaluar la dósis mínima de cada insecticida con la que se elimine al $70\%$ de los insecticidas además de que a través de la dósis mínima se puede afirmar que dicho insecticida es mejor comparado con los dos restantes.  
+_*Todas las pruebas de hipótesis se realizarán con una significancia de $\alpha = 0.05$*_
+
+```{r fig-proporcion, fig.cap="Proporcion de mortalidad por insecticida y dosis aplicada"}
+library(ggplot2) # Llamamos a la librería para graficar
+
+df_preg3B$prop <- df_preg3B$Killed / df_preg3B$Number # Se define la proporción
+# de mortalidad según el insecto y el insecticida
+
+ggplot(df_preg3B, aes(x = Deposit, y = prop, color = Insecticide)) +
+  geom_point(size = 3) +     # Tamaño de los puntos a observar
+  labs(title = "Mortalidad de insectos según dosis e insecticida",
+       x = "Dosis",
+       y = "Proporción de insectos muertos",
+       color = "Insecticida") +
+  theme_minimal()
+```
+
+A partir de la figura \@ref(fig:fig-proporcion), se observa que para el insecticida C se requiere una dosis mínima para eliminar al menos el $50\%$ de los insectos en cuestión, lo que nos da una señal de que quizá este sea el mejor de los 3 insecticidas.\
+Con respecto al insecticida A y B se puede notar que tienen tasas de mortalidad muy cercanas a partir de una dosis aproximada de $3$, dada la gráfica se puede inferir que tienen un efectividad muy idéntica para dosis mayores que $4$.\
+Finalmente se observa que los $3$ insecticidas a mayor dosis mayor proporción de insectos eliminados tendrán salvo al final, que pareciera que existe una disminución de la efectividad a mayor dosis.\
+A continuación vamos a presentar una serie de modelos donde se va a considerar a la covariable $In(Deposit)$ y a la covariable *Insecticide* en donde se tomará al insecticida $A$ como referencia para el modelo. De este modo, se tiene que el componente lineal del modelo es:
+
+$$\eta = \beta_0 + \beta_1 \ln D + \beta_2 I_{\text{B}} + \beta_3 I_{\text{C}} + \beta_4 (\ln D \cdot I_{\text{B}}) + \beta_5 (\ln D \cdot I_{\text{C}})$$
+
+Donde $I_B, I_C$ son indicadoras donde vale 1 si es el mismo insecticida y 0 en otro caso.\
+Individualmente se tiene lo siguiente:\
+- Para el insecticida A se tiene:\
+$$\eta_\text{A}=\beta_{0}+\beta_{1}InD$$ 
+- Para el insecticida B se tiene:\
+$$\eta_\text{B} = \beta_{0} + \beta_{1}InD + \beta_{2} + \beta_{4}In(D) = (\beta_0 + \beta_2) + (\beta_1 + \beta_4) lnD$$ 
+- Para el insecticida C se tiene que:\
+$$\eta_\text{C} = \beta_{0} + \beta_{1}InD + \beta_{3} + \beta_{5}In(D) = (\beta_0 + \beta_3) + (\beta_1 + \beta_5) lnD$$
+A grandes rasgos, dados los coeficientes se observa que en efecto no son rectas paralelas, los términos $\beta_4$ y $\beta_5$ permiten que cada insecticida tenga su propia pendiente.\
+Además del componente lineal, usaremos 3 funciones ligas, a saber:\
+$$\text{Logit:} \quad \eta_i = \log\left(\frac{\mu_i}{1-\mu_i}\right)$$ $$\text{Probit:} \quad \eta_i = \Phi^{-1}(\mu_i)$$ $$\text{C-log-log:} \quad \eta_i = \log(-\log(1-\mu_i))$$
+
+```{r GLMs, include=FALSE}
+# Distintos GLMs pero con liga distinta
+# Requerimos las siguientes librerias
+library(ggplot2)
+library(readr)
+
+# Definimos lnD = log(Deposit)
+df_preg3B$lnD <- log(df_preg3B$Deposit)
+
+# cbind creará dos columnas:
+# 1: # Total de exitos o insectos muertos
+# 2: # Total de fracasos = Number - Killed
+# Esto para el glm es una respuesta binomial
+
+# Ajustamos el modelo logit
+modelo_logit <- glm(cbind(Killed, Number - Killed) ~ lnD * Insecticide,
+                    family = binomial(link = "logit"),
+                    data = df_preg3B)
+
+# Ajustamos el modelo probit
+modelo_probit <- glm(cbind(Killed, Number - Killed) ~ lnD * Insecticide,
+                     family = binomial(link = "probit"),
+                     data = df_preg3B)
+
+# Ajustamos el modelo c-log-log
+modelo_cloglog <- glm(cbind(Killed, Number - Killed) ~ lnD * Insecticide,
+                      family = binomial(link = "cloglog"),
+                      data = df_preg3B)
+
+# Se muestra el resumen de cada modelo
+summary(modelo_logit)
+summary(modelo_probit)
+summary(modelo_cloglog)
+
+# Comparamos el AIC
+AIC(modelo_logit, modelo_probit, modelo_cloglog)
+
+```
+
+```{r Tabla}
+# Crear la tabla con los AIC
+tabla_aic <- data.frame(
+  Tipo = c("GLM", "GLM", "GLM"),
+  Familia = c("Binomial", "Binomial", "Binomial"),
+  Liga = c("Logit", "Probit", "C-Log-Log"),
+  AIC = c(AIC(modelo_logit), AIC(modelo_probit), AIC(modelo_cloglog))
+)
+
+# Mostrar con kable
+library(knitr)
+library(kableExtra)
+
+kbl(tabla_aic, booktabs = TRUE, align = "c") %>%
+  kable_styling(latex_options = c("striped", "scale_down", "hold_position"))
+```
+
+A través de la tabla de arriba podemos decir que el mejor modelo ajustado fue el probit (Se puede verificar en el chunk "GLMs").
+
+```{r PG, include =FALSE}
+# Prueba General 
+library(multcomp)
+# Realizamos la prueba equivalente a la prueba F asociada a la tabla ANOVA
+# Para el modelo probit
+# Evaluamos si los coeficientes son 0 o existe al menos uno distinto de 0
+# Matriz K
+K <- matrix(c(
+  0, 1, 0, 0, 0, 0,  
+  0, 0, 1, 0, 0, 0,  
+  0, 0, 0, 1, 0, 0, 
+  0, 0, 0, 0, 1, 0,  
+  0, 0, 0, 0, 0, 1   
+), ncol = 6, nrow = 5, byrow = TRUE)
+
+# Vector m 
+m <- c(0, 0, 0, 0, 0)
+
+# Ejecutamos la prueba
+pg_probit <- glht(modelo_probit, linfct = K, rhs = m)
+summary(pg_probit, test = Chisqtest())
+# No se rechaza H0, lo que significa que podemos seguir analizando al modelo
+```
+
+```{r MPyD, include=FALSE}
+# Modelo probit y DHARMa
+library(DHARMa)
+set.seed(123)
+fitprobit <- simulateResiduals(fittedModel = modelo_probit)
+plot(fitprobit)
+# Notemos que no existen problemas para el qq-plot 
+# Sin embargo existen problemas en los DHARMa residuales,lo que sugiere usar 
+# otro modelo
+```
+
+```{r PG2, include=FALSE}
+# Prueba General 2
+library(multcomp)
+# Realizamos la prueba equivalente a la prueba F asociada a la tabla ANOVA
+# Para el modelo logit
+# Evaluamos si los coeficientes son 0 o existe al menos uno distinto de 0
+# Matriz K
+K <- matrix(c(
+  0, 1, 0, 0, 0, 0,  
+  0, 0, 1, 0, 0, 0,  
+  0, 0, 0, 1, 0, 0, 
+  0, 0, 0, 0, 1, 0,  
+  0, 0, 0, 0, 0, 1   
+), ncol = 6, nrow = 5, byrow = TRUE)
+
+# Vector m 
+m <- c(0, 0, 0, 0, 0)
+
+# Ejecutamos la prueba
+pg_logit <- glht(modelo_logit, linfct = K, rhs = m)
+summary(pg_logit, test = Chisqtest())
+
+# No se rechaza H0, lo que significa que podemos seguir analizando al modelo
+```
+
+```{r MLyD, include = FALSE}
+# Modelo Logit y DHARMa
+# Probamos el modelo logit ya que su AIC no está muy lejano del AIC del modelo probit
+library(DHARMa)
+set.seed(123)
+fitlogit <- simulateResiduals(fittedModel = modelo_logit)
+plot(fitlogit)
+```
+
+```{r PG3, include=FALSE}
+# Prueba General 3
+library(multcomp)
+# Realizamos la prueba equivalente a la prueba F asociada a la tabla ANOVA
+# Para el modelo c-log-log
+# Evaluamos si los coeficientes son 0 o existe al menos uno distinto de 0
+# Matriz K
+K <- matrix(c(
+  0, 1, 0, 0, 0, 0,  
+  0, 0, 1, 0, 0, 0,  
+  0, 0, 0, 1, 0, 0, 
+  0, 0, 0, 0, 1, 0,  
+  0, 0, 0, 0, 0, 1   
+), ncol = 6, nrow = 5, byrow = TRUE)
+
+# Vector m 
+m <- c(0, 0, 0, 0, 0)
+
+# Ejecutamos la prueba
+pg_cloglog <- glht(modelo_cloglog, linfct = K, rhs = m)
+summary(pg_cloglog, test = Chisqtest())
+# No se rechaza H0, lo que significa que podemos seguir analizando al modelo
+```
+
+```{r MCLLyD, include = FALSE}
+# Modelo C-log-log y DHARMa
+# Probamos para verificar, aunque su AIC sea el más alto
+library(DHARMa)
+set.seed(123)
+fitcloglog <- simulateResiduals(fittedModel = modelo_cloglog)
+plot(fitcloglog)
+# Revisamos los 3 modelos, sin embargo todos fallan cuando verificamos supuestos
+# Lo que implica que tenemos que usar otro modelo, a saber el que incluya In^2(D)
+```
+
+Se realizó un análisis a cada modelo,en particular se realizó la equivalencia a la prueba F asociada a la tabla ANOVA y análisis de residuales, sin embargo, el que nos interesa que es el modelo probit no pasó las pruebas de los supuestos por DHARMa, lo que nos reveló que tendremos que usar la variable: $(\ln(D))^2$. Veáse los detalles en los chunks: "GLMs", "PG", "MPyD".  
+
+Dicho lo anterior, usaremos $(\ln(D))^2$  y se ocuparan las mismas 3 ligas que usamos anteriormente, de este modo, recordando que el insecticida $A$ es el nivel de referencia:\
+$$\eta = \beta_0 + \beta_1\cdot \ln D +\beta_2 \cdot(\ln D)^2  + \beta_3 \cdot I _{\text{B}} + \beta_4 \cdot I_{\text{C}} + \beta_5 \cdot (\ln D \cdot I_{\text{B}}) + \beta_6 \cdot (\ln D \cdot I_{\text{C}}) + \beta_7\cdot(\ln D)^2\cdot I_B+ \beta_8 \cdot(\ln D)^2 \cdot I_C$$
+Dónde para cada insecticida se tiene que:  
+
+
+\-$\eta_A = \beta_0 + \beta_1 \ln D + \beta_2 (\ln D)^2$
+
+\-$\eta_B = (\beta_0 + \beta_3) + (\beta_1 + \beta_5) \ln D + (\beta_2 + \beta_7) (\ln D)^2$
+
+\-$\eta_C = (\beta_0 + \beta_4) + (\beta_1 + \beta_6) \ln D + (\beta_2 + \beta_8) (\ln D)^2$
+
+```{r GLMs2, include=FALSE}
+
+# Modelos lineales generalizados con In^2(D) 
+
+# Agregamos lnD^2 = (lnD)^2
+df_preg3B$lnD2 <- df_preg3B$lnD^2
+
+# Modelos con términos cuadráticos e interacciones
+modelo_logit_cuad <- glm(cbind(Killed, Number - Killed) ~ (lnD + lnD2) * Insecticide,
+                         family = binomial(link = "logit"), data = df_preg3B)
+
+modelo_probit_cuad <- glm(cbind(Killed, Number - Killed) ~ (lnD + lnD2) * Insecticide,
+                          family = binomial(link = "probit"), data = df_preg3B)
+
+modelo_cloglog_cuad <- glm(cbind(Killed, Number - Killed) ~ (lnD + lnD2) * Insecticide,
+                           family = binomial(link = "cloglog"), data = df_preg3B)
+
+# Comparación de AIC con los modelos anteriores
+AIC(modelo_logit, modelo_logit_cuad)
+AIC(modelo_probit, modelo_probit_cuad)
+AIC(modelo_cloglog, modelo_cloglog_cuad)
+
+BIC(modelo_logit, modelo_logit_cuad)
+BIC(modelo_probit, modelo_probit_cuad)
+BIC(modelo_cloglog, modelo_cloglog_cuad)
+```
+
+Después de introducir estos nuevos modelos obtuvimos los siguientes resultados que puede verificar en el chunk "GLMs2":
+
+```{r Tabla2}
+# Crear la tabla con los AIC
+tabla_aic_2 <- data.frame(
+  Tipo_2 = c("GLM_2", "GLM_2", "GLM_2"),
+  Familia = c("Binomial", "Binomial", "Binomial"),
+  Liga = c("Logit", "Probit", "C-Log-Log"),
+  AIC = c(AIC(modelo_logit_cuad), AIC(modelo_probit_cuad), AIC(modelo_cloglog_cuad)),
+  BIC = c(BIC(modelo_logit_cuad), BIC(modelo_probit_cuad), BIC(modelo_cloglog_cuad))
+)
+
+# Mostrar con kable
+library(knitr)
+library(kableExtra)
+
+# Convertimos a tabla
+kbl(tabla_aic_2, booktabs = TRUE, align = "c") %>%
+  kable_styling(latex_options = c("striped", "scale_down", "hold_position"))
+
+```
+
+```{r PG5, include=FALSE}
+# Prueba General 5
+library(multcomp)
+# Realizamos la prueba equivalente a la prueba F asociada a la tabla ANOVA
+# Para el modelo c-log-log cuadrado
+# Evaluamos si los coeficientes son 0 o existe al menos uno distinto de 0
+# Matriz K
+K <- matrix(c(
+  0, 1, 0, 0, 0, 0, 0, 0, 0,
+  0, 0, 1, 0, 0, 0, 0, 0, 0,
+  0, 0, 0, 1, 0, 0, 0, 0, 0,
+  0, 0, 0, 0, 1, 0, 0, 0, 0,
+  0, 0, 0, 0, 0, 1, 0, 0, 0,
+  0, 0, 0, 0, 0, 0, 1, 0, 0,
+  0, 0, 0, 0, 0, 0, 0, 1, 0,
+  0, 0, 0, 0, 0, 0, 0, 0, 1
+), ncol = 9, nrow = 8, byrow = TRUE)
+
+# Vector m
+m <- rep(0, 8) 
+
+# Ejecutamos el modelo
+
+summary(glht(modelo_cloglog_cuad, linfct = K, rhs = m), test = Chisqtest())
+
+# No se rechaza H0, lo que significa que podemos seguir analizando al modelo
+```
+
+```{r MCCLLyD, include=FALSE}
+# Modelo C-Log-Log-Cuad y DHARMa
+
+library(DHARMa)
+set.seed(123)
+fit_cloglog_cuad <- simulateResiduals(fittedModel = modelo_cloglog_cuad)
+plot(fit_cloglog_cuad)
+# No funciona bien este modelo, pasaremos al logit
+```
+
+```{r PG6, include = FALSE}
+# Prueba General 6
+
+library(multcomp)
+# Realizamos la prueba equivalente a la prueba F asociada a la tabla ANOVA
+# Para el modelo logit cuadrado
+# Evaluamos si los coeficientes son 0 o existe al menos uno distinto de 0
+# Matriz K
+K <- matrix(c(
+  0, 1, 0, 0, 0, 0, 0, 0, 0,
+  0, 0, 1, 0, 0, 0, 0, 0, 0,
+  0, 0, 0, 1, 0, 0, 0, 0, 0,
+  0, 0, 0, 0, 1, 0, 0, 0, 0,
+  0, 0, 0, 0, 0, 1, 0, 0, 0,
+  0, 0, 0, 0, 0, 0, 1, 0, 0,
+  0, 0, 0, 0, 0, 0, 0, 1, 0,
+  0, 0, 0, 0, 0, 0, 0, 0, 1
+), ncol = 9, nrow = 8, byrow = TRUE)
+
+# Vector m
+m <- rep(0, 8) 
+
+# Ejecutamos el modelo
+
+summary(glht(modelo_logit_cuad, linfct = K, rhs = m), test = Chisqtest())
+
+# No se rechaza H0, lo que significa que podemos seguir analizando al modelo
+```
+
+```{r MLCyD, include=FALSE}
+# Modelo Logit_Cuad y DHARMa
+
+library(DHARMa)
+set.seed(123)
+fit_logit_cuad <- simulateResiduals(fittedModel = modelo_logit_cuad)
+plot(fit_logit_cuad)
+# Notamos que no existen problemas con los supuestos
+```
+
+```{r RGDLC, include=FALSE}
+# Reglas del dedo para Logit_Cuad
+
+deviance(modelo_logit_cuad)/df.residual(modelo_logit_cuad) # Regla del dedo: El cociente debe ser cercano a 1 para
+# ser un modelo adecuado
+#1.3660 es un valor muy bueno, no parece que existan problemas con este modelo.
+sum(residuals(modelo_logit_cuad, "pearson")^2)/df.residual(modelo_logit_cuad) 
+# Otra regla del dedo
+# 1.37770 es un valor que también es bueno para nuestro modelo
+```
+
+```{r PA, include = FALSE}
+# Prueba ANOVA
+# Prueba de modelos anidados
+anova(modelo_logit, modelo_logit_cuad, test = "Chisq")
+# El p-value es muy pequeño, lo que significa que el término cuadrático es significativamente mejor que el término lineal
+```
+
+Tomando en cuenta estos resultados, observamos que el mejor modelo es el C-Log-Log aunque verificando la prueba equivalente a la prueba F asociada a la tabla ANOVA y los supuestos se encontraron problemas. Ver los detalles en los chunks "PG5" y "MCCLLyD".  
+De este modo el modelo logit fué el que sí cumplió con todos los requerimentos. Veáse los chunks: "PG6", "MLCyD", "RGDLC" y "PA" para más detalle. 
+
+
+```{r fig-predictiva, fig.cap="Predicción del modelo cuadrático"}
+library(ggplot2)
+library(readr)
+# DEfinimos la secuencia de dosis 
+dosis_seq <- seq(2, 8, length.out = 200)
+
+# Expandimos para cada insecticida
+newdata <- expand.grid(Deposit = dosis_seq,
+                       Insecticide = unique(df_preg3B$Insecticide))
+# Calcular lnD y lnD2
+newdata$lnD <- log(newdata$Deposit)
+newdata$lnD2 <- newdata$lnD^2
+
+# Predecir probabilidades
+newdata$prob <- predict(modelo_logit_cuad, newdata, type = "response")
+
+# Gráfica de dispersión 
+p <- ggplot(df_preg3B, aes(x = Deposit, y = Killed/Number, color = Insecticide)) +
+  geom_point(size = 3) +
+  # Curvas de predicción
+  geom_line(data = newdata, aes(y = prob, color = Insecticide), linewidth = 1.2) +
+  labs(x = "Dosis", y = "Proporción de insectos muertos",
+       title = "Predicción del modelo Logit") +
+  theme_minimal()
+
+print(p)
+```
+Arriba se presenta la figura: \@ref(fig:fig-predictiva), para los valores estimadados puntualmente del modelo logit cuadrático con la covariable $(\ln D)^2$ se puede observar que se ajusta relativamente bien con las proporciones, lo que nos indica que se obtuvo un modelo muy bueno para predecir la probabilidad de que un insecto muera; lo que da oportunidad de responder las siguientes preguntas que pueden ser de interés a los investigadores empezando por la siguiente: ¿Cuál es la dosis mínima para cada insecticida con la que se pueda indicar que se matan al $70\%?$ de los insectos? Para responder este problema, recordemos que nuestro modelo logit está definido como sigue:  
+$$\log\left(\frac{\mu_i}{1-\mu_i}\right) = \beta_0 + \beta_1\cdot \ln D +\beta_2 \cdot(\ln D)^2  + \beta_3 \cdot I _{\text{B}} + \beta_4 \cdot I_{\text{C}} + \beta_5 \cdot (\ln D \cdot I_{\text{B}}) + \beta_6 \cdot (\ln D \cdot I_{\text{C}}) + \beta_7\cdot(\ln D)^2\cdot I_B+ \beta_8 \cdot(\ln D)^2 \cdot I_C $$ 
+Ahora bien, se desea hallar la $D$ tal que $\mu_i = 0.7$, esto es: $\log\left(\frac{0.7}{1-0.7}\right) = \log\left(\frac{0.7}{0.3}\right) \approx 0.8472$ para cada insecticida. Lo que equivale a resolver las 3 siguientes ecuaciones:  
+$$\beta_2 (\ln D)^2 + \beta_1 \ln D + (\beta_0 - 0.8472) = 0$$
+$$(\beta_2 + \beta_7) (\ln D)^2 + (\beta_1 + \beta_5) \ln D + (\beta_0 + \beta_3 - 0.8472) = 0$$
+$$(\beta_2 + \beta_8) (\ln D)^2 + (\beta_1 + \beta_6) \ln D + (\beta_0 + \beta_4 - 0.8472) = 0$$
+```{r Resolución de las 3 ecuaciones, include =FALSE}
+# Extraer coeficientes
+coefs <- coef(modelo_logit_cuad)
+names(coefs)
+
+# Definimos los coeficientes
+
+beta0 <- coefs["(Intercept)"]
+beta1 <- coefs["lnD"]
+beta2 <- coefs["lnD2"]
+beta3 <- coefs["InsecticideB"]
+beta4 <- coefs["InsecticideC"]
+beta5 <- coefs["lnD:InsecticideB"]
+beta6 <- coefs["lnD:InsecticideC"]
+beta7 <- coefs["lnD2:InsecticideB"]
+beta8 <- coefs["lnD2:InsecticideC"]
+
+# Logit del 70%
+logit70 <- log(0.7/0.3)
+
+# Función para resolver la ecuación cuadrática 
+solve_ld70 <- function(a, b, c, target) {
+  # a*x^2 + b*x + (c - target) = 0
+  c_adj <- c - target
+  discriminante <- b^2 - 4*a*c_adj # Verifica que el discriminante no sea negativo
+  if(discriminante < 0) return(NA)
+  raiz1 <- (-b + sqrt(discriminante)) / (2*a)
+  raiz2 <- (-b - sqrt(discriminante)) / (2*a)
+  # Elegir la raíz que esté dentro del rango del logaritmo de la dosis aplicada
+
+  # Para una ecuación cuadrática, puede haber dos soluciones; tomamos la que da menor dosis, pues buscamos la mínima dosis.
+  raices <- c(raiz1, raiz2)
+  raices <- raices[!is.na(raices) & raices > 0] # lnD > 0 (dosis >1)
+  if(length(raices)==0) return(NA)
+  # Preferimos la raíz más pequeña si ambas soluciones están en el rango
+  raiz <- min(raices)
+  return(raiz)
+}
+
+# Para insecticida A
+x_A <- solve_ld70(a = beta2, b = beta1, c = beta0, target = logit70)
+dosis_A <- exp(x_A)
+
+# Para insecticida B
+x_B <- solve_ld70(a = beta2 + beta7, b = beta1 + beta5, c = beta0 + beta3, target = logit70)
+dosis_B <- exp(x_B)
+
+# Para insecticida C
+x_C <- solve_ld70(a = beta2 + beta8, b = beta1 + beta6, c = beta0 + beta4, target = logit70)
+dosis_C <- exp(x_C)
+
+# Mostramos los resultados
+resultados <- data.frame(
+  Insecticida = c("A", "B", "C"),
+  lnD70 = c(x_A, x_B, x_C),
+  Dosis70 = c(dosis_A, dosis_B, dosis_C)
+)
+print(resultados)
+```
+
+```{r Tabla 3}
+# Crear la tabla con los resultados
+tabla_resultados <- data.frame(
+  Insecticida = c("A", "B", "C"),
+  lnD70 = c(x_A, x_B, x_C),
+  Dosis70 = c(dosis_A, dosis_B, dosis_C)
+)
+
+# Mostrar con kable
+library(knitr)
+library(kableExtra)
+# Mostramos la tabla resultante
+kbl(tabla_resultados, booktabs = TRUE, align = "c") %>%
+  kable_styling(latex_options = c("striped", "scale_down", "hold_position"))
+```
+Notamos que nuestro modelo nos indica que el insecticida $A$ nunca alcanzará la eficacia requerida aunque en la Figura 2 parece sí existir una dosis para la que $A$ alcance el $70\%$ de efectividad pero se podria de tratar de un caso aislado pues, se observa que para una dosis de $8$ existe una disminucion de la eficacia. Con respecto al insecticida $B$ se requiere una dosis de $6.9$ para lograr el objetivo. Para el insecticida $C$ se encuentra que es la que menor dosis requiere, siendo esta de $2.69$, lo que nos da más evidencia de que en efecto, podría ser la mejor de las $3$.  
+Que es la siguiente pregunta a responder, en este caso, queremos saber si el insecticida $C$ es el mejor, para ello, tiene que suceder al mismo tiempo que:  
+
+$$\eta_A < \eta_C~~~ \text{y}~~~ \eta_B < \eta_C $$
+En el primer caso, esto implica que: 
+$$\beta_0 + \beta_1 \ln D + \beta_2 (\ln D)^2 \;<\; (\beta_0 + \beta_4) + (\beta_1 + \beta_6) \ln D + (\beta_2 + \beta_8) (\ln D)^2 \implies$$
+$$0 < \beta_4 + \beta_6 \ln D + \beta_8 (\ln D)^2 \implies $$
+$$ 
+\eta_A < \eta_C \quad \Longleftrightarrow \quad \beta_4 + \beta_6 \ln D + \beta_8 (\ln D)^2 > 0
+$$
+Y para $\eta_B < \eta_C$ se tiene lo siguiente: 
+$$(\beta_0 + \beta_3) + (\beta_1 + \beta_5) \ln D + (\beta_2 + \beta_7) (\ln D)^2 \;<\; (\beta_0 + \beta_4) + (\beta_1 + \beta_6) \ln D + (\beta_2 + \beta_8) (\ln D)^2 \implies $$
+$$0 \;<\; (\beta_4 - \beta_3) + (\beta_6 - \beta_5) \ln D + (\beta_8 - \beta_7) (\ln D)^2 \implies$$
+$$\eta_B < \eta_C \quad \Longleftrightarrow \quad (\beta_4 - \beta_3) + (\beta_6 - \beta_5) \ln D + (\beta_8 - \beta_7) (\ln D)^2 > 0$$
+
+Lo que equivale a contrastar tomando en cuenta que la dósis mínima de C es $0.9886822$, denotada por: $x$.
+
+
+$$H_0: \beta_4 + \beta_6 \cdot x +\beta_8 \cdot x^2\ = 0 \quad \text{y} \quad (\beta_4 - \beta_3) + (\beta_6 - \beta_5)\cdot x + (\beta_8 - \beta_7)(x)^2 = 0$$  vs
+$$H_1: \text{Ambas combinaciones lineales son mayores que cero.}$$
+```{r PLGAvsC, include = FALSE}
+# Prueba Lineal General Global 
+library(multcomp)
+
+# Valor de lnD en la dosis estimada del insecticida C
+x <- 0.9886822
+
+# Matriz K:
+
+K <- matrix(c(
+  0, 0, 0, 0, 1, 0, x, 0, x^2,  #  Fila 1: C vs A: β4 + β6*x + β8*x^2
+  0, 0, 0, -1, 1, -x, x, -x^2, x^2 # Fila 2: C vs B: (β4-β3) + (β6-β5)*x + (β8-β7)*x^2
+), nrow = 2, byrow = TRUE)
+
+m = c(0,0)
+# Prueba Lineal 
+test<- glht(modelo_logit_cuad, linfct = K, rhs = m)
+summary(test, test = Chisqtest()) #Chisq porque la variable y es binaria
+
+# Se rechaza la hipótesis nula
+
+# Pero veamos pruebas simultaneas:
+test_CA <- glht(modelo_logit_cuad, linfct = K[1, , drop = FALSE], rhs = 0, alternative = "greater") # Nos tomamos la primera fila de la matriz K // # La coma es para seleccionar todas las columnas 
+# Y drop = FALSE hace que se mantenga como una matriz de 1xN
+summary(test_CA, test = Chisqtest())
+# Se rechaza la hipotesis nula, lo que implica que el insecticida C es mejor que el A
+test_CB <- glht(modelo_logit_cuad, linfct = K[2, , drop = FALSE], rhs = 0, alternative = "greater") # Nos tomamos la segunda fila de la matriz K
+summary(test_CB, test = Chisqtest())
+# Se rechaza la hipotesis nula, lo que implica que el insecticida C es mejor que el B
+```
+En este caso, se tienen que cumplir ambas hipótesis a la vez para asegurar que en efecto el insecticida C es el mejor, para esto, se realizará una prueba lineal general, donde se halló que se rechaza la hipótesis nula, sea globalmente (ambas a la vez) o simultáneas, por lo que con una significancia de $\alpha= 0.05$ se concluye que en efecto, el insecticida C es el mejor de los $3$. La justificación y construcción de la prueba se encuentra en el chunk "PLGAvsC". 
+
+Lo único que falta de verificar es que si existe un desempeño similar entre los insecticidas A y B, para esto, vamos a contrastar la siguiente prueba:
+$$H_0: \beta_3 = 0,\ \beta_5 = 0,\ \beta_7 = 0 \quad \text{vs.} \quad H_1: \beta_3 \neq 0 \ \text{ó} \ \beta_5 \neq 0 \ \text{ó} \ \beta_7 \neq 0$$ 
+donde se usará una prueba lineal general.
+```{r PF, include = FALSE}
+library(multcomp)
+#Si queremos que 𝜂_A = 𝜂_B basta ver que las interacciones de B sean 0
+# Matriz de contrastes para los coeficientes que diferencian A y B
+K_AB <- matrix(c(
+  0,0,0,1,0,0,0,0,0,  # beta3 (InsecticideB)
+  0,0,0,0,0,1,0,0,0,  # beta5 (lnD:InsecticideB)
+  0,0,0,0,0,0,0,1,0   # beta7 (lnD2:InsecticideB)
+), ncol = 9, nrow = 3, byrow = TRUE)
+
+prueba_AB <- glht(modelo_logit_cuad, linfct = K_AB)
+summary(prueba_AB, test = Chisqtest())
+```
+
+En el chunk "PF" se realizó esta prueba, arrojandonos que no podemos afirmar estadisticamente que exista una diferencia entre la efectividad del insecticida A con el de B.
