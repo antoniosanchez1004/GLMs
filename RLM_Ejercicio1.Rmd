@@ -1,0 +1,260 @@
+---
+title: "Diagnostico de la presión diastólica mediante diversos factores"
+author: "Luis Antonio López Sánchez"
+output:
+  bookdown::pdf_document2: 
+    number_sections: no
+    toc: no
+    highlight: tango
+    latex_engine: xelatex
+header-includes: 
+   - \usepackage{float}
+date: "21/09/2026"
+geometry: margin=1.0cm
+urlcolor: blue
+---
+
+```{r include =FALSE}
+# Empezamos limpiando nuestro ambiente
+rm(list = ls(all.names = TRUE))
+
+# Configuración de los chunks
+knitr::opts_chunk$set(
+	echo = FALSE,
+	fig.align = "center",
+	fig.dim = c(6.0, 5.0),
+	fig.pos = "H",
+# Agregamos configuraciones para evitar mensajes de advertencias y de errores en el archivo
+	message = FALSE,
+	warning = FALSE,
+	error = F
+)
+
+# Librerías
+library(dplyr)      # Para el manejo de datos
+library(ggplot2)    # Para realizar gráficas
+library(kableExtra) # Para un mejor manejo de tablas
+library(GGally)     # Para realizar análisis descriptivo fácilmente
+library(multcomp)   # Para pruebas de hipótesis
+library(car)        # Para funciones útiles de modelos de regresión lineal múltiple
+library(broom)      # Para obtener los residuales estandarizados
+library(lmtest)     # Para verificar supuestos
+library(summarytools) # Para crear tablas
+```
+
+## Inferencia sobre la presión arterial diastólica a partir del IMC de una muestra
+
+Se nos proporcionaron datos acerca de la presión arterial diastólica y el índice de masa corporal de personas de distinto sexo y edad. Se desea determinar si existe la suficiente evidencia estadística que permita fundamentar que, en efecto, a mayor índice de masa corporal, mayor presión arterial diastólica en los individuos del estudio de donde fue tomada la muestra.  
+
+_*Todas las pruebas de hipótesis se realizarán con una significancia de $\alpha = 0.05$*_
+
+```{r Leemos los datos, include = FALSE}
+df_preg1B <- read.csv("C:/Users/admin/Downloads/Preg1B.csv")
+# Convertimos a factor la variable categorica (sexo)
+df_preg1B$sex <- factor(df_preg1B$sex, 
+                        levels = c(1, 2), 
+                        labels = c("Hombre", "Mujer"))
+str(df_preg1B)
+# 1 si es hombre, 2 si es mujer
+# Veamos medidas de tendencia central
+summary(df_preg1B)
+```
+
+```{r fig-presion, echo = FALSE, fig.cap= "¿Como se ve la presión diastólica por sexo?"}
+boxplot(bpdiast ~ sex, data = df_preg1B,
+        col = c("cyan", "pink"),         
+        names = c("Hombre", "Mujer"),   
+        main = "Presión diastólica por sexo",
+        xlab = "Sexo", ylab = "Presión diastólica")
+```
+
+Se presenta en la figura \@ref(fig:fig-presion), un box-plot acerca de la presión diastólica por sexo (bpdiast), se nota que las medianas entre ambos grupos son muy similares; sin embargo, se deja en evidencia que, naturalmente, la presión en hombres tiende a ser más alta que en las mujeres.
+
+```{r, Tabla de medidas}
+# Seleccionamos las variables numéricas
+var <- df_preg1B[, c("bpdiast", "bmi", "age")]
+
+# Creamos una tabla 
+resumen <- data.frame(
+  Variable = colnames(var),
+  Media = sapply(var, mean),
+  DE = sapply(var, sd),
+  Min = sapply(var, min),
+  Max = sapply(var, max)
+)
+
+kbl(resumen, booktabs = TRUE, digits = 2, caption = "Estadísticas Descriptivas") %>%
+  kable_styling(latex_options = c("striped", "hold_position"))
+```
+
+Tomando en cuenta los datos mostrados anteriormente, la muestra presenta un IMC (o BMI) promedio de 25.25, dato que es muy razonable dentro de los estándares del rango de edad, que se encuentra entre los 45 y los 50 años; mientras tanto, la presión diastólica se mantiene en un rango aceptable o normal para los individuos de los que fue recolectada la muestra.
+
+```{r ¿Existe la regresión en este caso?, include=FALSE}
+# Definimos el modelo solicitado 
+fit_1 <- lm(bpdiast ~ bmi + sex + age, data = df_preg1B) # En este caso
+# estamos modelando E(bpdiast; bmi,sex, age) = b_0 + b_1(bmi) + b_2(sex) 
+# + b_3(age)
+summary(fit_1)
+# En vista de esto, podemos afirmar que en efecto existe regresión por la prueba
+# F asociada a la tabla ANOVA
+```
+
+```{r Linealidad del modelo inicial, include = FALSE}
+# Vamos a graficar la linealidad global
+residualPlots(fit_1)
+# Resulta que la linealidad se rechaza para la edad, por lo que se sugiere usar una transformacion box-tidwell
+# Linealidad por covariable
+avPlots(fit_1, terms = "bmi") # Por índice de masa corporal
+avPlots(fit_1, terms = "age") # Por edad 
+```
+
+## Revisando el modelo inicial propuesto por los investigadores:
+
+El modelo incial propuesto es: $$E(\text{bpdiast; bmi, sex, age}) = \beta_{0} + \beta_{1}(\text{bmi}) + \beta_{2}(\text{sexmujer}) + \beta_{3}(\text{age})$$\
+Haciendo nuestro trabajo, podemos afirmar que el modelo propuesto es rechazado, pues encontramos evidencia de que para la edad no se cumple linealidad, más aún, se rechaza la linealidad global y por tanto, se propone usar otro modelo. (Usted puede verificar lo dicho anteriormente en el chunk: *'Linealidad del modelo inicial'*)
+
+```{r Eleccion del nuevo modelo, include = FALSE}
+# Usaremos la transformación box-tidwell para la variable de la edad pues es la que necesitamos ajustar:
+library(car)
+# La variable categórica no nos importa ya que siempre se cumple linealidad
+# Tampoco consideramos transformar al bmi
+boxTidwell(bpdiast ~ age, ~ sex + bmi, data = df_preg1B)
+```
+
+Ahora bien, se realizó una prueba boxTidwell para hallar la $\lambda$ que permita mejorar la linealidad, en este caso obtuvimos $\lambda=-1.8154$ pero para no perder interpretabilidad usaremos $\lambda =- 2$, por lo que el nuevo modelo propuesto está dado por:
+
+$$E(\text{bpdiast; bmi, sex , age}) = \beta_{0} + \beta_{1}(\text{bmi}) + \beta_{2}\text(sexmujer) + \beta_{3}(\text{age}^{-2})$$
+Puede ver los detalles en el chunk: "Elección del nuevo modelo".
+
+```{r Modelo propuesto y supuestos, include =FALSE}
+# Ejecutamos el modelo y veamos si hay regresión, ademas de ver si existe regresión
+fit_2 <- lm(bpdiast ~ bmi + sex + I(age^-2), data = df_preg1B)
+# Vemos el summary
+summary(fit_2)
+# En efecto, existe la regresión por la prueba F asociada a la tabla ANOVA.
+
+# Linealidad
+residualPlots(fit_2)
+avPlots(fit_2, terms = "bmi") # Por indice de masa corporal
+avPlots(fit_2, terms = "I(age^-2)") # Por edad^-2
+# No hay evidencia para rechzar la linealidad, apoyados de los graficos se ve bien.
+
+# Veamos homocedasticidad
+bptest(fit_2)
+# No se rechaza homocedasticidad
+ncvTest(fit_2)
+# Tampoco rechaza varianza constante
+
+# Realizamos gráficas  
+plot(fit_2, 3)
+# No tenemos evidencia para rechazar homocedasticidad!
+
+# Revisemos normalidad
+residuos <- residuals(fit_2)
+# Pruebas de hipotesis
+library(nortest)
+shapiro.test(residuos) # No rechaza normalidad
+lillie.test(residuos) # Tampoco la rechaza
+
+# Visualizamos los plots
+plot(fit_2, 2)
+# Creamos un histograma
+hist(residuos, main = "Histograma de Residuos", col = "lightblue")
+# Hay normalidad
+
+# Tambien tenemos independencia entre los datos
+
+AIC(fit_1, fit_2)
+# Nuestro modelo tiene menor AIC por lo que es mejor.
+
+
+```
+
+```{r PLG, include = FALSE}
+library(multcomp)
+
+# Definimos la matriz K
+K <- matrix(c(0, 1, 0, 0,  
+              0, 0, 1, 0,  
+              0, 0, 0, 1), 
+            ncol = 4, nrow =3, byrow = TRUE)
+
+m = c(0,0,0)
+
+# Ejecutamos la prueba
+prueba <- glht(fit_2, linfct = K, rhs = m)
+summary(prueba)
+# Se rechazan que todos los coeficientes sean 0
+```
+
+A partir del modelo propuesto, hemos probado que, en efecto, existe regresión a través de la prueba F asociada a la tabla ANOVA. Además, hemos comprobado que los supuestos se cumplen (esto se puede observar en los chunks "Modelo propuesto y supuestos" y "PLG").  
+
+Ahora bien, una pregunta que se nos puede venir a la mente es la siguiente:
+Si fijamos la edad y el sexo, ¿existirá relación entre tener un bmi alto y tener una presión diastólica alta?  
+
+Para responder a esta incognita, consideremos que para esto se cumpla, se tiene que recordar que nuestro modelo propuesto es:\
+$$E(\text{bpdiast; bmi, sex, age}) = \beta_{0} + \beta_{1}(\text{bmi}) + \beta_{2}\text(sexmujer) + \beta_{3}(\text{age}^{-2})$$  
+Y que se tiene que dar la siguiente relación:  
+$$bmi_1 > bm_2 \implies bpdiast_1 > bdpiast_2$$  
+Que a través de operaciones algebraicas equivale a contrastar lo siguiente:\
+$$H_0:\beta_1\leq0\hspace{.25cm}vs.\hspace{.25cm}H_a:\beta_1>0$$  
+Mismo contraste que se va a encontrar en el chunk "PLG2" que justamente se realizó a traves de una prueba lineal general.
+
+```{r PLG2, include=FALSE}
+#Definimos nuestra matriz K para la prueba
+K=matrix(c(0,1,0,0), ncol=4, nrow=1, byrow=TRUE)
+#Definimos nuestro vector m
+m=c(0)
+
+#Realizamos nuestra prueba de greater
+summary(glht(fit_2, linfct=K, rhs=m, alternative="greater"))
+```
+La prueba lineal general nos indicó que podemos afirmar que rechazamos completamente la hipótesis nula por lo que a través de esta evidencia estadística se afirma con una significancia de $\alpha = 0.05$ que en promedio, para dos personas del mismo sexo y edad, aquella con mayor IMC tiende a presentar una presión diastólica más alta”.
+```{r fig-comparacion, fig.cap = "Comparación por sexo y edades fijadas", echo =FALSE}
+library(ggplot2)
+
+# Rango de BMI basado en la muestra
+rango_bmi <- seq(15.83, 53.04, length.out = 100)
+
+# Escenarios
+escenarios <- expand.grid(
+  bmi = rango_bmi,
+  age = c(30, 45, 65),
+  sex = levels(df_preg1B$sex) 
+)
+
+# Estimamos la presión usando el modelo final
+escenarios$bpdiast_pred <- predict(fit_2, newdata = escenarios)
+
+# Etiquetas
+escenarios$Edad <- factor(escenarios$age, levels = c(30, 45, 65), 
+                          labels = c("30 años", "45 años", "65 años"))
+
+#  Graficamos
+ggplot(escenarios, aes(x = bmi, y = bpdiast_pred, color = Edad, linetype = sex)) +
+  geom_line(linewidth = 1) + 
+  labs(
+    title = "Efecto del BMI en la Presión Diastólica",
+    subtitle = "Segmentado por Edad y Sexo",
+    x = "Índice de Masa Corporal (BMI)",
+    y = "Presión Diastólica Estimada",
+    color = "Grupo de Edad",
+    linetype = "Sexo"
+  ) +
+  scale_color_brewer(palette = "Set1") +
+  theme_minimal() +
+  theme(legend.position = "bottom")
+```
+
+Complementando lo que se dijo anteriormente, en la figura \@ref(fig:fig-comparacion), podemos inferir lo siguiente:
+
+-   La pendiente es creciente para cualquier categoria, lo que reafirma la idea de que a mayor indice de masa corporal mayor presion diastolica se tendra.\
+    Esto quiere decir que: por cada unidad que aumenta el índice de masa corporal, la presión diastólica esperada aumenta en promedio: $0.8865$
+-   Para el sexo tambien podemos decir que para los hombres se presenta una mayor presion diastolica que para las mujeres y eso justamente para cualquier edad. Esto es que ser hombre se asocia con una presión diastólica esperada 3.563 mayor que ser mujer.
+-   Finalmente, para las edades se tiene algo que es intuitivo: a mayor edad, mayor presion diastolica esto es porque la transformación $\text{age}^{-2}$ disminuye a medida que la edad aumenta, al multiplicarlo por $-4153$, el término $-4153 \cdot \text{age}^{-2}$ aumenta cuando la edad aumenta.
+
+## El modelo puntual esta dado por:
+
+\begin{equation}
+\widehat{\text{E(\text{bpdiast; bmi, sex, age})}} = 59.23 + 0.8865 \cdot \text{bmi} + 3.563 \cdot \text{sexmujer} - 4153 \cdot \text{age}^{-2}
+\end{equation}
