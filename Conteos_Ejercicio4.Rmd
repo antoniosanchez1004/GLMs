@@ -1,0 +1,377 @@
+---
+title: "Informe de la viralidad de una enfermedad"
+author: "Luis Antonio López Sánchez"
+output:
+  bookdown::pdf_document2: 
+    number_sections: no
+    toc: no
+    highlight: tango
+    latex_engine: xelatex
+header-includes: 
+   - \usepackage{float}
+date: "01/04/2026"
+geometry: margin=1.0cm
+urlcolor: blue
+---
+
+```{r setup, include = FALSE}
+
+#Empezamos limpiando nuestro ambiente
+rm(list = ls(all.names = TRUE))
+
+# Configuración global de los bloques de código (chunk's)
+knitr::opts_chunk$set(
+	echo = FALSE,
+	fig.align = "center",
+	fig.dim = c(6.0, 5.0),
+	fig.pos = "H",
+#Agregamos configuraciones para evitar mensajes de advertencias y de errores en el archivo
+	message = FALSE,
+	warning = FALSE,
+	error = F
+)
+# Comentario para el lector: Hay chunks con nombres algo largos, para evitar que el texto se vea lleno de pura referencia de chunks largos se optó por trabajar con las iniciales de dicho modelo y en el mismo chunk en la primera línea se adjunta el significado del mismo. Por ejemplo, si un chunk se llamaba: "Prueba F asociada a la tabla ANOVA ahora se llamará: PFATA" 
+# Otro comentario: Cambia el include = FALSE por echo = FALSE para poder visualizar los plots y pruebas de hipótesis
+# Un último comentario: Los chunks donde trabajé de más (relleno) están caracterizados por un (R)
+
+```
+
+```{r Leemos nuestros datos, include=FALSE}
+df_preg4 <- read.csv("C:/Users/admin/Downloads/Preg4.csv")
+#Necesitas el archivo Preg4.csv 
+
+summary(df_preg4)
+str(df_preg4) # Revisamos la estructura de las variables
+# Convertimos en factor a la variable de la ciudad
+# Transformacion a tipo factor
+df_preg4$city <- as.factor(df_preg4$city)
+str(df_preg4) # Ya es tipo factor
+```
+
+## Inferencia acerca de la viralidad de una enfermedad en 3 ciudades
+
+Se nos proporció una base de datos que contiene información acerca del número de casos confrimados de una enfermedad viral. Nuestro objetivo es identificar si a mayor edad, mayor riesgo de contraer la enfermedad. Para esto, se consideran los siguientes elementos:
+
+-   Rango de la edad\
+-   Número de personas que estuvieron en riesgo de contraer la enfermedad\
+-   Casos confirmados y\
+-   La ciudad.
+
+```{r fig-Incidencia, fig.cap= "Relación entre la edad y la incidencia por ciudad",  out.width = "70%", fig.height = 2, echo =FALSE}
+ library(ggplot2)
+library(dplyr)
+
+# Calculamos la tasa de incidencia por cada 1000 habitantes
+# Nos dará mejor visualización
+df_preg4 <- df_preg4 %>%
+  mutate(incidence = (cases / n)*1000, # tasa de incidencia = cases/ # personas en riesgo
+         age.range = factor(age.range, ordered = TRUE)) # los rangos de edad deben de estar ordenados (de menor a mayor)
+
+
+# Consideramos las 3 ciudades 
+ggplot(df_preg4, aes(x = age.Num, y = incidence, color = city, group = city)) +
+   geom_point(size = 2) +
+  labs(x = "Edad (años)", y = "Incidencia (casos por 1000 personas)") +
+  theme_minimal()
+```
+
+A partir de la Figura \@ref(fig:fig-Incidencia), se puede notar que para grupos de adultos mayores (sobretodo en el rango de $75$ a los $84$ años) existe una mayor tendencia a enfermarse, lo cuál es algo que se espera: A mayor edad que se tenga, sé es más propenso a enfermarse. En este caso, la mayor incidencia se da en la ciudad de Dallas, lo que probablemente se de por la cantidad de habitantes que vivan que viven en dicha ciudad. También se observa que en Chicago se mantiene estable dicha incidencia, es decir, la incidencia no se dispara como en Minneapolis o en Dallas. Como esto es un análisis exploratorio, tendremos que ajustar modelos que nos permitan responder preguntas de interés y claramente, cumplir con la meta del análisis.\
+Ahora bien, vamos a ajustar un modelo de conteos, a saber, vamos a probar los siguientes modelos, recordando que estamos modelando la incidencia, por lo que es necesario introducir un término offset, esto es que, que queremos modelar tomando en cuenta que la ciudad de Chicago es nuestro nivel de referencia: $$ \log (\frac{\text{casos confirmados}}{\text{total de personas expuestas}})= \log(\frac{casos}{n})$$
+
+```{r Modelos a probar, include =FALSE}
+# Este chunk nos ayudará a crear la siguiente tabla
+# Esta tabla se agregó cuando mi jefe me dijo que hice mucho trabajo de más verificando modelo a modelo.
+library(mdhglm)
+library(MASS)
+modelo_a <- glm(cases ~ age.Num * city + offset(log(n)), family = poisson(link = "log"), data = df_preg4)
+
+modelo_b <- glm(cases ~ I(age.Num^(1/2)) * city + offset(log(n)), family = poisson(link = "log"), data = df_preg4)
+
+modelo_c <- glm(cases ~ I(log(age.Num)) * city + offset(log(n)), family = poisson(link = "log"), data = df_preg4)
+
+modelo_d <- glm.nb(cases ~ age.Num * city + offset(log(n)), data = df_preg4, link = "log")
+
+modelo_e <- glm.nb(cases ~ I(age.Num^(1/2)) * city + offset(log(n)), data = df_preg4, link = "log")
+
+modelo_f <- glm.nb(cases ~ I(log(age.Num)) * city + offset(log(n)), data = df_preg4, link = "log")
+
+```
+
+```{r Modelos}
+tabla_modelos <- data.frame(
+  Modelo = c("a", "b", "c", "d", "e", "f"),
+  Familia = c("Poisson", "Poisson", "Poisson", "Binomial Negativo", "Binomial Negativo", "Binomial Negativo"),
+  Liga = rep("log", 6),
+  AIC = c(AIC(modelo_a), AIC(modelo_b), AIC(modelo_c), AIC(modelo_d), AIC(modelo_e),   AIC(modelo_f)),
+  BIC = c(BIC(modelo_a), BIC(modelo_b), BIC(modelo_c), BIC(modelo_d), BIC(modelo_e), BIC(modelo_f)),
+  Offset = rep("log(n)", 6)
+)
+# Mostrar con kable
+library(knitr)
+library(kableExtra)
+
+kbl(tabla_modelos, booktabs = TRUE, align = "c") %>%
+  kable_styling(latex_options = c("striped", "scale_down", "hold_position"))
+```
+
+```{r (R) Procedemos a evaluar modelos Poisson, include = FALSE}
+# Trabajo de más 
+library(mdhglm)
+# Primer modelo con liga \In y modelo Poisson
+modelo_a <- glm(cases ~ age.Num * city + offset(log(n)), family = poisson(link = "log"), data = df_preg4)
+summary(modelo_a)
+
+# Evaluamos regla del dedo
+deviance(modelo_a)/df.residual(modelo_a)
+# Está muy alejado de 1 (69.27764)
+
+# Veamos el DHARMa
+library(DHARMa)
+set.seed(123)
+fit_modelo_a <- simulateResiduals(fittedModel = modelo_a)
+plot(fit_modelo_a)
+# Existen muchos problemas, no es factible usar este modelo
+```
+
+```{r (R) Modelo Poisson con age.Num^(1/2), include = FALSE}
+#Más trabajo
+# Hagamos lo mismo que el chunk pasado
+library(mdhglm)
+modelo_b <- glm(cases ~ I(age.Num^(1/2)) * city + offset(log(n)), family = poisson(link = "log"), data = df_preg4)
+summary(modelo_b)
+
+# Evaluamos regla del dedo
+deviance(modelo_b)/df.residual(modelo_b)
+# 60.05 es un valor muy alto, veamos los residuales simulados
+
+library(DHARMa)
+set.seed(123)
+fit_modelo_b <- simulateResiduals(fittedModel = modelo_b)
+plot(fit_modelo_b)
+# Seguimos teniendo muchos problemas, pasemos con el siguiente modelo
+```
+
+```{r (R) Modelo Poisson con In(age.Num), include = FALSE}
+# Otra vez más trabajo
+library(mdhglm)
+modelo_c <- glm(cases ~ I(log(age.Num)) * city + offset(log(n)), family = poisson(link = "log"), data = df_preg4)
+summary(modelo_c)
+
+# Veamos regla del dedo
+deviance(modelo_c)/df.residual(modelo_c)
+# 61.16 sigue siendo un valor muy alto, pasemos con los residuales simulados
+
+library(DHARMa)
+set.seed(123)
+fit_modelo_c <- simulateResiduals(fittedModel = modelo_c)
+plot(fit_modelo_c)
+# Suguen existiendo demasiados problemas, en este caso, pasaremos a los modelos
+# con la biniomial negativa
+```
+
+```{r (R) Modelo Binomial Negativo con age.Num, include = FALSE}
+# Un poco más de trabajo
+library(MASS)
+modelo_d <- glm.nb(cases ~ age.Num * city + offset(log(n)), data = df_preg4, link = "log")
+summary(modelo_d)
+# Mejoró mucho el AIC, veamos si cumple con los supuestos
+
+# Regla del dedo
+deviance(modelo_d)/df.residual(modelo_d)
+# !.50 es un buen valor, pero veamos los residuales simulados
+
+library(DHARMa)
+set.seed(123)
+fit_modelo_d <- simulateResiduals(fittedModel = modelo_d)
+plot(fit_modelo_d) # No parece haber problemas con los QQ plot
+# Sin embargo existen problemas con los DHARMa residuales, probemos la siguiente 
+# transformacion de age.Num
+```
+
+```{r (R) Modelo BN con (age.Num)^1/2, include = FALSE}
+# Ya por si las dudas 
+library(MASS)
+modelo_e <- glm.nb(cases ~ I(age.Num^(1/2)) * city + offset(log(n)), data = df_preg4, link = "log")
+summary(modelo_e) # Mejoró el AIC, veamos la regla de dedo
+
+deviance(modelo_e)/df.residual(modelo_e)
+# Cada vez es más cercano de 1, por lo que es un mejor modelo que el anterior, veamos si 
+# cumple los supuestos
+
+library(DHARMa)
+set.seed(123)
+fit_modelo_e <- simulateResiduals(fittedModel = modelo_e)
+plot(fit_modelo_e) 
+# Siguen habiendo problemas en los DHARMa residuales, veamos el último
+```
+
+```{r ME, include = FALSE}
+# Modelo elegido
+
+modelo_f <- glm.nb(cases ~ I(log(age.Num)) * city + offset(log(n)), data = df_preg4, link = "log")
+summary(modelo_f) # El AIC bajó más pero veamos la regla del dedo y los supuestos
+
+# Reglas del dedo
+deviance(modelo_f)/df.residual(modelo_f)
+
+# Es muy cercano a 1 (1.3198) es un buen modelo
+sum(residuals(modelo_f, "pearson")^2)/(dim(df_preg4)[1]-summary(modelo_f)$df[3])
+# Muy cercano a 1 (1.2236), por lo que es el mejor modelo
+
+# Veamos si cumple con los modelos
+library(DHARMa)
+set.seed(123)
+fit_modelo_f <- simulateResiduals(fittedModel = modelo_f)
+plot(fit_modelo_f)
+# Este modelo se ve muy bien, cumple con la regla del dedo
+# y con los supuestos, podemos usarlo.
+```
+
+```{r PLGdM, include =FALSE}
+# Prueba lineal general del modelo
+# Equivalencia de la prueba F asociada a la tabla ANOVA para el mejor modelo.
+library(multcomp)
+
+# Matriz K, 5 coeficientes
+K <- matrix(c(
+  0, 1, 0, 0, 0, 0,  
+  0, 0, 1, 0, 0, 0,  
+  0, 0, 0, 1, 0, 0, 
+  0, 0, 0, 0, 1, 0,  
+  0, 0, 0, 0, 0, 1   
+), ncol = 6, nrow = 5, byrow = TRUE)
+
+# Vector m 
+m <- c(0, 0, 0, 0, 0)
+
+
+# Ejecutamos la prueba
+pg_modelo_f <- glht(modelo_f, linfct = K, rhs = m)
+summary(pg_modelo_f, test = Chisqtest())
+# Podemos proceder a analizar al modelo con In(age.Num)
+```
+
+A partir de la tabla anterior, se probaron todos los modelos (Ver los chunks no mencionados) pero el mejor modelo con el menor AIC y el BIC, fue el modelo binomial negativo con covariable transformada: $\ln(age.Num)$, los detalles los puede ver en el chunk "ME" y "PLGdM" en donde verificamos que los requerimientos del modelo (supuestos) se cumplen.\
+A partir de ello, vamos a escribir los modelos para cada ciudad, en este caso, el componente lineal: Sea $x_1 = \ln(\text{age.Num}$, entonces, para cada ciudad:
+
+$$
+\eta_{\text{Chicago}} = \beta_0 + \beta_1 \cdot x_1
+$$
+
+$$
+\eta_{\text{Dallas}} = (\beta_0 + \beta_2) + (\beta_1 + \beta_4) \cdot x_1
+$$
+
+$$
+\eta_{\text{Minneapolis}} = (\beta_0 + \beta_3) + (\beta_1 + \beta_5) \cdot x_1
+$$
+
+Con este modelo, podemos responder a una pregunta de interés, ¿es verdad que a mayor edad, mayor incidencia de la enfermedad? Para responder esto, debemos ver lo siguiente: Se desea ver si la edad tiene un efecto positivo en la incidencia, en nuestro modelo, esto quiere decir que la pendiente de cada uno de las ciudades sea igual a $0$. Para cada ciudad se tiene que: - Para Chicago la pendiente es: $$\beta_1 \cdot x_1$$ - Para Dallas la pendiente es:\
+$$(\beta_1 + \beta_4) \cdot x_1$$ - Y para Minneapolis su pendiente es:\
+$$(\beta_1 + \beta_5) \cdot x_1$$ De donde se deduce que si las pendientes son igual a 0, se deberá cumplir que: $\beta_1 = 0$, $\beta_1 + \beta_4 =0 \implies \beta_1=\beta_4$ y que\
+$\beta_1 +\beta_5=0 \implies \beta_5 = \beta_1$\
+Lo que es equivalente a contrastar:\
+$$
+H_0: \beta_1 = 0,\ \beta_4 = 0,\ \beta_5 = 0~~ \text{vs.}~~H_1: \beta_1 > 0 ~~~ \text{ó} ~~~\beta_4 > 0 \ ~~~\text{ó}~~~\beta_5 > 0
+$$ Rechazar $H_0$ indica que al menos una de las pendientes es diferente de cero. Se toma esta prueba y no la bilateral pues las estimaciones puntuales nos dieron dichos coeficientes positivos.
+
+```{r PE, include =FALSE}
+# Prueba de la edad
+# Matriz K
+K <- matrix(c(
+  0, 1, 0, 0, 0, 0,
+  0, 0, 0, 0, 1, 0,
+  0, 0, 0, 0, 0, 1
+), ncol = 6, nrow = 3, byrow = TRUE)
+# Vector m
+m = c(0,0,0)
+test_global <- glht(modelo_f, linfct = K, rhs = m)
+summary(test_global, test = Chisqtest()) # prueba chi-cuadrado de Wald
+# Se rechaza H_0 con un p value aprox de 0.
+```
+
+La prueba nos arrojó que en efecto, se rechaza $H_0$ se rechaza, por lo que alguno de los coeficientes es mayor que $0$, lo que implica que se acepta la alternativa y estadisticamente existe la evidencia que respalda que a mayor edad, mayor incidencia de la enfermedad. Revise el chunk "PE" para verificar lo descrito anteriormente.\
+Ahora bien, nos interesa saber si la incidencia de la enfermedad es la misma para las 3 ciudades y para todas las edades. Para resolver esto, recordemos que esto implicaría que todos los coeficientes sean 0, en palabras más sencillas, estaríamos diciendo que la incidencia de la enfermedad solo depende de la edad $In(age.Num)$ y del nivel de referencia, es decir, de Chicago y todo lo demás no aporta nada. Entonces, vamos a contrastar mediante pruebas simultaneas lo siguiente:\
+$$H_0: \beta_2 = \beta_3 = \beta_4 = \beta_5 = 0 \quad \text{vs.} \quad H_1: \text{al menos uno} \neq 0$$
+
+```{r PS, include =FALSE}
+# Prueba simultanea
+
+library(multcomp) 
+# Matriz K
+K <- matrix(c(
+  0, 0, 1, 0, 0, 0,   
+  0, 0, 0, 1, 0, 0,  
+  0, 0, 0, 0, 1, 0,   
+  0, 0, 0, 0, 0, 1    
+), ncol = 6, nrow = 4, byrow = TRUE)
+# Vector m
+m = c(0,0,0,0)
+test <- glht(modelo_f, linfct = K, rhs = m)
+summary(test, test = Chisqtest())
+# No se rechaza H_0, se puede trabajar con el modelo reducido resultante!
+
+```
+
+A partir de la prueba realizada se concluye que no se rechaza la hipótesis nula, lo que quiere decir que no existe evidencia estadistica suficiente como para negar que la incidencia entre ciudades sea distinta por la edad, verifiquelo en el chunk: "PS".
+
+Dado lo anterior, procedemos a ajustar un modelo reducido.
+
+```{r MR, include=FALSE}
+# Modelo reducido
+library(MASS)
+modelo_reducido <- glm.nb(cases ~ log(age.Num) + offset(log(n)), data = df_preg4)
+summary(modelo_reducido) # Baja el AIC
+```
+
+```{r Sup, include=FALSE}
+# Supuestos
+# Regla del dedo 
+deviance(modelo_reducido)/df.residual(modelo_reducido)
+# 1.035 es un buen valor, pero veamos los residuales simulados
+
+library(DHARMa)
+set.seed(123)
+fit_modelo_reducido <- simulateResiduals(fittedModel = modelo_reducido)
+plot(fit_modelo_reducido) # Todos los supuestos se cumplen
+# Podemos usar este modelo para predicción
+```
+
+Una vez ajustado el modelo, se tiene que el modelo final está dado por:\
+$$ \log(\mu)= -22.8551 + 4.4555\cdot x_1 + \log(n)$$ donde $\log(n)$ es el término offset del modelo y $x_1 = \ln(\text{age.Num}$\
+Hablando un poco de este modelo, su intercepto es $\beta_0 = -22.8551$ indica que es el valor esperado del logaritmo de los casos (Recordemos que $cases = \frac{\mu}{n}$) cuando $x_1= 0$ o en términos simples, cuando la edad sea igual a un $1$ año se tendrá que la incidencia será casi $0$ para edades muy pequeñas.\
+Con respecto a $\beta_1= 4.4555$ nos indica que por cada $1\%$ que aumente $x_1$, la tasa de incidencia aumentará en un $4.55\%$, lo que implica que mientras más aumente la edad, la incidencia será mayor.\
+Gráficamente se tendrá que ver que para valores de la edad muy pequeños la incidencia será casi nula, y apoyandonos de las pruebas de hipótesis ya realizadas se deberá de observar como tiende a crecer conforme aumente la edad.
+
+```{r fig-incid, fig.pos = "H", fig.cap= "¿Cómo se la incidencia de la enfermedad?", fig.pos = "H", out.width = "60%", fig.height = 2, echo = FALSE}
+
+# Calcular tasa observada por 1000 (para interpretar)
+df_preg4 <- df_preg4 %>%
+  mutate(incidence = (cases / n) * 1000)
+
+# Datos para predicción, n=1 hace que el término offset se haga 0
+edad_nueva <- data.frame(age.Num = seq(20, 80, length.out = 100), n = 1)
+
+# Predicción en escala log 
+pred <- predict(modelo_reducido, newdata = edad_nueva, type = "link")
+edad_nueva$fit_log <- pred
+
+# Convertir a tasa por 1000
+edad_nueva <- edad_nueva %>%
+  mutate(fit_rate = exp(fit_log) * 1000)
+
+# Gráfico 
+library(ggplot2)
+ggplot(df_preg4, aes(x = age.Num, y = incidence, color = city)) +
+  geom_point(size = 2) +
+  geom_line(data = edad_nueva, aes(x = age.Num, y = fit_rate), 
+            inherit.aes = FALSE, linewidth = 1.2, color = "black") +
+  labs(x = "Edad", y = "Incidencia (casos por 1000 personas)",
+       title = "Incidencia de la enfermedad por edad",
+       color = "Ciudad") +
+  theme_minimal() +
+  theme(legend.position = "bottom") +
+  scale_color_brewer(palette = "Set1")
+```
+
+En la figura \@ref(fig:fig-incid) se confirma lo anteriormente dicho y complementa nuestros hallazgos.
