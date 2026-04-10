@@ -1,0 +1,436 @@
+---
+title: "Reporte de interés para estudiar un posgrado"
+author: "Luis Antonio López Sánchez"
+output:
+  bookdown::pdf_document2:
+    number_sections: no
+    toc: no
+    highlight: tango
+    latex_engine: xelatex
+header-includes: 
+   - \usepackage{float}
+date: "6/04/2026"
+geometry: margin=1.0cm
+urlcolor: blue
+---
+
+```{r setup, include=FALSE}
+#Empezamos limpiando nuestro ambiente
+rm(list = ls(all.names = TRUE))
+
+
+# Configuración global de los bloques de código (chunk's)
+knitr::opts_chunk$set(
+	echo = FALSE,
+	fig.align = "center",
+	fig.dim = c(7.0, 6.0),
+	fig.pos = "H",
+#Agregamos configuraciones para evitar mensajes de advertencias y de errores en el archivo
+	message = FALSE,
+	warning = FALSE,
+	error = F
+)
+
+# Comentario para el lector: Hay chunks con nombres algo largos, para evitar que el texto se vea lleno de pura referencia de chunks largos se optó por trabajar con las iniciales de dicho modelo y en el mismo chunk en la primera línea se adjunta el significado del mismo. Por ejemplo, si un chunk se llamaba: "Prueba F asociada a la tabla ANOVA ahora se llamará: PFATA" 
+
+# Librerías
+library(dplyr)      # Para el manejo de datos
+library(ggplot2)    # Para realizar gráficas
+library(kableExtra) # Para un mejor manejo de tablas
+library(GGally)     # Para realizar análisis descriptivo fácilmente
+library(multcomp)   # Para pruebas de hipótesis
+library(tidyverse)  # Más manejo de datos
+library(purrr)      # Para Map
+library(VGAM)       # Para los modelos multinomiales
+```
+
+```{r Leemos nuestros datos, include=FALSE}
+df_preg5 <- read.csv("C:/Users/admin/Downloads/Preg5.csv")
+# Veamos la estructura de los datos
+str(df_preg5)
+
+# Transformamos la variable apply a factor:
+df_preg5 <- df_preg5 %>%
+  mutate(
+    apply = factor(apply, levels = c("unlikely", "somewhat likely", "very likely")), 
+    pared = factor(pared, levels = c(0, 1)), 
+    public = factor(public, levels = c(0, 1))
+  )
+# Verifiquemos 
+str(df_preg5)
+
+```
+## Inferencia sobre el interés de escoger estudiar un posgrado
+
+Se nos proporcionaron unos datos con información acerca del interés de $400 $estudiantes para estudiar un posgrado. Nuestro interés es determinar si entre los factores de decisión se encuentran:\
+- El tipo de universidad: Pública o privada.\
+- Si algunos de los padres realizó un posgrado o no.\
+- Y su promedio general.\
+Para lograr responder esto, se propone ajustar un modelo logístico multinomial, esto, considerando que existen 3 tipos de respuesta por parte de los estudiantes, a saber: *unlikely*, *somewhat likely* y *very likely*.  
+
+_*Todas las pruebas de hipótesis se realizarán con una significancia de $\alpha = 0.05$*_
+
+```{r fig-frecuencias, fig.pos = "H", fig.cap= "¿Cómo se ven las frecuencias por cruce?", fig.pos = "H", out.width = "50%", fig.height = 2, echo = FALSE}
+# Creamos la variable cruce entre public y pared
+df_preg5 <- df_preg5 %>%
+  mutate(cruce_public_pared = paste("Public:", public, "| Pared:", pared))
+# Creamos la gráfica de frecuencias
+
+ggplot(data = df_preg5, mapping = aes(x = cruce_public_pared, fill = apply)) +
+  geom_bar(position = "fill", color = "black") +
+  scale_fill_manual(values = c("unlikely" = "red", 
+                               "somewhat likely" = "yellow",
+                               "very likely" = "green")) +
+  labs(title = "Frecuencias relativas del interés en un posgrado",
+       x = "Cruce (Public : Pared)",
+       y = "Frecuencia",
+       
+       fill = "Interés") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(size = 7))
+```
+
+En la figura \@ref(fig:fig-frecuencias) se observan las frecuencias relativas del nivel de interés con respecto al cruce de las variables public y pared, es decir las posibles combinaciones del tipo de universidad en donde se estudió y si alguno de los padres estudió un posgrado, se tienen las siguientes observaciones de izquierda a derecha:
+
+-   Estudió en una universidad privada pero ninguno de sus padres estudió un posgrado: Para este cruce se observa que los estudiantes tienden a decir que es improbable que ellos estudien un posgrado dadas esas circunstancias, también se observa que aproximadamente un $\frac{1}{4}$ de los estudiantes de este subconjunto no se decide si estudiar o no el posgrado. Mientras que son mínimos los estudiantes que están casi seguros de estudiar el posgrado.
+
+-   Estudió en una universidad privada y al menos uno de los padres estudió un posgrado: En este caso en particular se logra apreciar que ahora hay una mayor proporción de estudiantes que están dudosos de estudiar un posgrado o no, mientras que la proporción de estudiantes que dicen que es muy probable que estudien también aumentó, mientras que el rechazo a no estudiarlo disminuyó, distribuyendose en los dos niveles anteriormente descritos.
+
+-   Estudió en escuela pública pero ninguno de sus padres estudió un posgrado: Para estas condiciones se observa que existe un comportamiento similar al caso $1$, existe una proporción mayoritaria de estudiantes que no planean realizar un posgrado. Sin embargo, hay un número mayor de estudiantes que se animarían a hacerlo con respecto a caso $1$, en cuánto a las personas que están indecisas aún, se observa que es una menor proporción con respecto al caso $1$ y $2$.
+
+-   Estudió en escuela pública y alguno de sus padres sí estudió un posgrado: En este último cruce se dicierne un "equilibrio" entre los estudiantes que no ven posible su realización de un posgrado con los que tienen duda de si lo harán o no. En particular considero que existe un balance entre las $3$ opciones, siendo este caso el más cercano a mantener las frecuencias cercanas entre sí.\
+
+```{r fig-boxplot, fig.pos = "H", fig.cap = "¿Cómo se ve el interés en un posgrado ante el promedio?", echo = FALSE, out.width = "50%", fig.height = 2}
+
+ggplot(data = df_preg5, mapping = aes(x = apply, y = gpa, fill = apply)) +
+  #
+  geom_boxplot(color = "black", alpha = 0.8) +
+  scale_fill_manual(values = c("unlikely" = "red", 
+                               "somewhat likely" = "yellow", 
+                               "very likely" = "green")) +
+  # Etiquetamos
+  labs(title = "Distribución del promedio por nivel de interés en un posgrado",
+       x = "apply",
+       y = "gpa") +
+  theme_minimal() +
+  theme(legend.position = "none",
+        axis.text.x = element_text(size = 8))
+```
+
+En la figura \@ref(fig:fig-boxplot) se aprecia como se distribuyen las respuestas con respecto el promedio. En rasgos generales se tiene lo siguiente:
+
+-   A mayor promedio se puede observar que es mayor la concentración de los estudiantes que sí ven muy probable estudiar su posgrado y se justifica pues su diagrama es más compacto con respecto a las otras dos opciones.
+
+-   También se ve que es más variable el promedio de los estudiantes que no ven probable o que no se deciden aún por realizar el posgrado.
+
+```{r AM, include =FALSE}
+# Ajustar modelos
+#Primero ajustamos un modelo con todas las interacciones posibles
+# Tipo de universidad (public), si sus padres estudiaron un posgrado (pared) y su
+# promedio general (gpa)
+
+fit_completo <- vglm(apply ~ public*pared*gpa, #Fórmula
+                  family = multinomial(refLevel = "unlikely"), #Familia
+                  data = df_preg5) #Datos
+
+#Posteriormente un modelo que no contenga ninguna interacción
+fit_no_interacciones <- vglm(apply ~ public + pared + gpa,
+                     family = multinomial(refLevel = "unlikely"),
+                     data = df_preg5)
+
+#Finalmente un modelo que contenga únicamente intercepto
+fit_0 <- vglm(apply ~ 1,
+                 family = multinomial(refLevel = "unlikely"),
+                 data = df_preg5)
+```
+
+```{r PHRM, include = FALSE}
+#Prueba de hipótesis para reducir el modelo 
+
+# Usaremos la funcion anova pues tenemos demasiados coeficientes para construir 
+# la prueba lineal general
+# Primeros comparemos el modelo nulo (B_0) vs el modelo completo
+# H_0 = Usar el modelo nulo vs H_a Usar el modelo completo
+anova(fit_0, fit_completo, type = "I")
+# Se rechaza el modelo nulo, por lo que se trabaja con el modelo completo
+
+```
+
+```{r PHRM2, include = FALSE}
+#Prueba de hipótesis para reducir el modelo 2da parte
+
+# Probemos el modelo reducido contra el modelo completo
+# Es decir: El modelo sin interacciones vs El modelo completo
+# Usaremos la prueba anova de igual forma
+# H_0 = Usar el modelo reducido vs H_a = Usar el modelo completo
+anova(fit_no_interacciones, fit_completo, type = "I")
+# No se rechaza el modelo sin interacciones, podemos usarlo!
+```
+
+```{r EPFATA, include=FALSE}
+# Equivalencia a la prueba F asociada a la tabla ANOVA 
+# Ahora comparamos el modelo sin interacciones vs el modelo nulo
+# Se usara la prueba anova de la misma forma
+#H_0 = Usar el modelo nulo vs. H_a = Usar el modelo sin interacciones
+anova(fit_0, fit_no_interacciones, type = "I")
+# Se rechaza la prueba, por lo que tenemos que usar el modelo sin interacciones
+# Hemos logrado reducir el modelo
+```
+
+```{r MLC, include=FALSE}
+# Modelo logit cumulative
+# Ajustamos un modelo con las covariables pared, public y gpa (sin interacciones) pues en el chunk anterior se halló que podíamos usar el modelo sin interacciones
+# Considerando que apply es ordinal
+# Se ajusta el modelo sin el supuesto de proporcionalidad usando la función vglm
+
+fitord_ssp <- vglm(apply ~ public + pared + gpa,
+                  family = cumulative(parallel = FALSE), # El argumento debe ser parallel = FALSE
+                  data = df_preg5)
+```
+
+```{r MLC2, include=FALSE}
+# Modelo logit cumulative 2
+# Ajustamos un modelo considerando el supuesto de proporcionalidad
+# Tomando en cuenta las mismas covariables sin interacciones
+
+
+fitord_csp <- vglm(apply ~ public + pared + gpa,
+                 family = cumulative(parallel = TRUE), # Esto es lo que cambia
+                  data = df_preg5)
+```
+
+```{r MON, include =FALSE}
+# Modelo ordinal nulo 
+# Definimos el modelo ordinal nulo que nos será útil para los siguientes chunks
+fitord_0 <- vglm(apply ~ 1, 
+               family = cumulative(parallel = FALSE), # No importa si ponemos el supuesto o no
+               data = df_preg5)
+# Con este modelo comparamos contra los modelos ordinales
+```
+
+```{r EPFATAMNP, include=FALSE}
+# Equivalencia a la prueba F asociada a la tabla ANOVA para el modelo no proporcional
+# Modelo no proporcional
+# H_0: Todos los betas son 0 (menos el intercepto) vs H_a = Al menos uno es distinto de 0
+anova(fitord_0, fitord_ssp, test = "LR", type = "I")
+# Se rechaza la hipotesis nula (p'value muy chiquito), por lo que este modelo se puede usar
+```
+
+```{r PPMP, include = FALSE}
+# Prueba para el modelo proporcional
+# Se contrasta si usar el modelo nulo vs usar el modelo con interacciones
+
+anova(fitord_0, fitord_csp, test = "LR", type = "I")
+
+# También se rechaza la hipótesis nula (el p-value es muy chiquito), por lo que podríamos trabajar con ambos modelos pero veamos cuál es mejor
+# Misma prueba:
+# H_0 = Usar el modelo reducido (proporcional) vs H_a: Usar el modelo completo (sin supuesto de proporcionalidad)
+# Usamos la función anova
+anova(fitord_csp, fitord_ssp, type = "I")
+# No tenemos evidencia de rechazar al modelo reducido (p value = 0.26)
+# Se usa el modelo reducido/Con supuesto de proporcionalidad
+```
+
+```{r AIC, include=FALSE}
+# Verificamos los anteriores resultados
+AIC(fitord_csp)
+AIC(fitord_ssp)
+# Por una diferencia de casi 2, es mejor eso que nada 
+```
+
+```{r MMvsMCSP,  include=FALSE}
+#  Modelo multinomial vs Modelo con supuesto de proporcionalidad
+
+# Verificamos quién tiene el mejor AIC
+# Si el modelo multinomial o el modelo con supuesto de proporcionalidad
+AIC(fit_completo)
+AIC(fitord_csp)
+# Nos quedamos con el modelo reducido
+```
+
+```{r Tabla}
+# Crear la tabla con los AIC
+tabla_aic <- data.frame(
+  Modelo = c("Multinomial completo", 
+             "Multinomial sin interacciones", 
+             "Ordinal (Supuesto de proporcionalidad)", 
+             "Ordinal (Sin supuesto de proporcionalidad)"),
+  Familia = c("Multinomial", "Multinomial", 
+              "Logit acumulativo", "Logit acumulativo"),
+  AIC = c(AIC(fit_completo), 
+          AIC(fit_no_interacciones), 
+          AIC(fitord_csp), 
+          AIC(fitord_ssp))
+)
+# Mostrar con kable
+library(knitr)
+library(kableExtra)
+
+kbl(tabla_aic, booktabs = TRUE, align = "c") %>%
+  kable_styling(latex_options = c("striped", "scale_down", "hold_position"))
+
+```
+
+Ahora bien, la tabla que se presenta arriba es un resumen de los modelos propuestos para este análisis. Conviene decir que ajustar un modelo multinomial no siempre es fácil por la cantidad de coeficientes que pueden llegar a salir durante la inferencia.  
+
+- Primero se ajustó un modelo multinomial para ser evaluado contra un modelo sin interacciones entre las covariables y un modelo nulo, donde a través de pruebas de hipótesis entre los modelos se concluyó que el modelo sin interacciones era el mejor. Ver los detalles en los chunks: "AM", "PHRM", "PHRM2" y "EPFATA".  
+
+- Posterior a este análisis, se propusó abordar un modelo ordinal y ver si se conseguía reducir la complejidad del modelo, esto se logró proponiendo dos modelos: Donde el primero no cumplía con el supuesto de proporcionalidad y el segundo sí lo cumplía, en este caso, como ya habíamos logrado reducir el modelo inicial se instó a usar las mismas covariables que se habían utilizado para el modelo multinomial sin interacciones. A través de este análisis se concluyó que se podía reducir el modelo aún más, resultando que nuestras pruebas de hipótesis (_anova_) respaldan este hecho y verificado por el AIC de ambos modelos ordinales. Ver los detalles en los chunks: "MLC", "MLC2", "MON", "EPFATAMNP", "PPMP" y "AIC".  
+
+- Finalmente faltaba comparar entre el modelo multinomial sin interacciones y el modelo con el supuesto de proporcionalidad, para esto, se les calculó el AIC a ambos modelos, resultando que el mejor modelo entre todos los propuestos en efecto, era el que tenía el supuesto de proporcionalidad, además de ser el modelo más reducido que se encontró entre los candidatos. Ver los detalles en el chunk: "MMvsMCSP".  
+Dado que no tenemos un modelo ordinal con el supuesto de proporcionalidad, se estará modelando de la siguiente manera:  
+Sea: $x_1 = \mathbb{I}_{public}$, $x_2 = \mathbb{I}_{pared}$ y $x_3 = gpa$
+Por lo que nuestro modelo se verá así:  
+
+$$\log(\frac{\mathbb{P}[Y\leq{}j]}{1-\mathbb{P}[Y\leq j]})=\beta_0^{(j)}+\beta_1x_1+\beta_2x_2+\beta_3x_3\hspace{.25 cm}\forall{}j\in\{1,2\}$$
+
+
+```{r ¿QNDESyC?, include = FALSE}
+# ¿Qué nos dice el summary y los coeficientes?
+summary(fitord_csp)
+# El summary nos dice que no es estadisticamente significativo estudiar en una escuela pública o una privada
+# Veamos los coeficientes en modo matriz para mejor interpretación
+coef(fitord_csp, matrix  = TRUE)
+# Se ve que el coeficiente de public no rechaza que ese coeficiente sea 0
+# Proponemos un nuevo modelo
+```
+
+```{r MSVP, include = FALSE}
+# Modelo sin la variable public
+# Se propone el nuevo modelo:
+fitord_sp <- vglm(apply ~ pared + gpa, 
+               family = cumulative(parallel = TRUE), 
+               data = df_preg5)
+# Se contrasta H0 = Usar el modelo reducido vs Ha = Usar el modelo completo
+anova(fitord_sp, fitord_csp, type = "I")
+# No se rechaza H_0, podemos usar el modelo reducido
+```
+
+```{r AIC 2, include=FALSE}
+AIC(fitord_sp)
+AIC(fitord_csp)
+# El AIC del modelo sin la variable public es menor, se usará ese modelo
+
+```
+
+En el chunk "¿QNDESyC?" se obtiene la información sobre los coeficientes del modelo reducido, en donde para la covariable "_public_" el test de Wald no rechaza que el coeficiente de dicha covariable sea igual a $0$, por lo cuál se propone un modelo donde esta covariable no esté presente, lo que significaría que independientemente de la universidad de dónde provengan los estudiantes mostrarían los mismos intereses de estudiar o no un posgrado.  
+Para verificar esto, se realizará un test _anova_ para contrastar los modelos de donde se obtuvo que en efecto, el modelo sin la covariable _public_ no es necesaria para explicar las respuestas de los estudiantes, lo que implica que obtuvimos un modelo con un menor AIC y más resumido, en pocas palabras, se contrastó lo siguiente: 
+$$H_0:\text{Podemos utilizar el modelo reducido}$$
+
+$$\text{vs.}$$
+
+$$H_a:\text{Debemos utilizar el modelo completo}$$
+
+Y no se rechazó la hipótesis nula. Ver los detalles en los chunks: "MSVP" y "AIC 2".  
+El modelo puntual resultante es el siguiente, definiendo ahora:  
+
+$$x_1 = \mathbb{I}_{pared} ~~\text{y}~~ x_2 = gpa \implies \log(\frac{\mathbb{P}[Y\leq{}j]}{1-\mathbb{P}[Y\leq j]})=\beta_0^{(j)} -1.0457x_1 -0.6043 x_2\hspace{.25 cm}\forall{}j\in\{1,2\}$$ 
+
+```{r, MF, include = FALSE}
+summary(fitord_sp)
+coef(fitord_sp, matrix = TRUE)
+```
+
+```{r fig-pred, fig.cap= "Probabilidad predictiva ante distintos promedios y circunstacias", fig.pos = "H", out.width = "50%", fig.height = 2, echo=FALSE}
+
+# Elegimos 5 promedios representativos, y combinamos con pared (0 y 1). Dejamos public en 0.
+gpa_r <- expand.grid(
+  gpa = c(2.0, 2.5, 3.0, 3.5, 4.0),
+  pared = factor(c(0, 1), levels = c(0, 1)),
+  public = factor((0), levels = c(0, 1)) 
+)
+
+# Hacemos las predicciones 
+pred <- predict(fitord_csp, newdata = gpa_r, type = "response")
+datos_g <- cbind(gpa_r, pred)
+
+# Transformamos los datos a formato long
+datos_long <- datos_g %>%
+  pivot_longer(
+    cols = c("unlikely", "somewhat likely", "very likely"),
+    names_to = "Respuesta",
+    values_to = "Probabilidad"
+  ) %>%
+  # Ordenamos
+  mutate(Respuesta = factor(Respuesta, levels = c("unlikely", "somewhat likely", "very likely")))
+
+# Etiquetamos
+ggplot(datos_long, aes(x = factor(gpa), y = Probabilidad, fill = Respuesta)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.8), width = 0.7) +
+  geom_text(aes(label = round(Probabilidad, 2)), 
+            position = position_dodge(width = 0.8), 
+            vjust = -0.5, size = 2.5) +  # Mera presentación de los números
+  # Dividimos por la variable pared
+  facet_grid(. ~ pared, labeller = labeller(pared = c("0" = "Ningún padre sin posgrado (0)", 
+                                                      "1" = "Algún padre con posgrado (1)"))) +
+  scale_fill_manual(values = c("unlikely" = "red", 
+                               "somewhat likely" = "yellow", 
+                               "very likely" = "green")) +
+  labs(
+    title = "Probabilidades predichas del interés en un posgrado",
+    x = "Promedio General (gpa)",
+    y = "Probabilidad"
+  ) +
+  theme_minimal() +
+  theme(
+    legend.position = "top",
+    strip.text = element_text(size = 8, face = "bold"), # Hace más bonitos los títulos del facet_grid
+    axis.text.x = element_text(size = 10)
+  )
+
+```
+En la figura \@ref(fig:fig-pred) se presenta una gráfica del modelo anterior que incluía al modelo con las 3 covariables iniciales, en donde se graficó las respuestas de los estudiantes tomando en cuenta distintos promedios y dejando fijas las variables _public_ y _pared_. Esto se realizó para consolidar la evidencia de que no importa del tipo de universidad de donde se provenga. A continuación se mostrará la gráfica que resulta del modelo que no considera la universidad de procedencia.
+
+
+```{r fig-MF, fig.cap= "Probabilidad predictiva del modelo final", fig.pos = "H", out.width = "50%", fig.height = 2, echo=FALSE}
+# Solo referencia de que no va a cambiar la interpretación por tipo de universidad
+# Elegimos 5 promedios representativos, y combinamos con pared (0 y 1). 
+gpa_r <- expand.grid(
+  gpa = c(2.0, 2.5, 3.0, 3.5, 4.0),
+  pared = factor(c(0, 1), levels = c(0, 1))) # Ya no se toma en cuenta el factor: public
+
+# Hacemos las predicciones 
+pred <- predict(fitord_sp, newdata = gpa_r, type = "response")
+datos_g <- cbind(gpa_r, pred)
+
+# Transformamos los datos a formato long
+datos_long <- datos_g %>%
+  pivot_longer(
+    cols = c("unlikely", "somewhat likely", "very likely"),
+    names_to = "Respuesta",
+    values_to = "Probabilidad"
+  ) %>%
+  # Ordenamos
+  mutate(Respuesta = factor(Respuesta, levels = c("unlikely", "somewhat likely", "very likely")))
+
+# Etiquetamos
+ggplot(datos_long, aes(x = factor(gpa), y = Probabilidad, fill = Respuesta)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.8), width = 0.7) +
+  geom_text(aes(label = round(Probabilidad, 2)), 
+            position = position_dodge(width = 0.8), 
+            vjust = -0.5, size = 2.0) +  # Mera presentación de los números
+  # Dividimos por la variable pared
+  facet_grid(. ~ pared, labeller = labeller(pared = c("0" = "Ningún padre sin posgrado (0)", 
+                                                      "1" = "Algún padre con posgrado (1)"))) +
+  scale_fill_manual(values = c("unlikely" = "red", 
+                               "somewhat likely" = "yellow", 
+                               "very likely" = "green")) +
+  labs(
+    title = "Probabilidades predichas del interés en un posgrado 2",
+    x = "Promedio general (gpa)",
+    y = "Probabilidad"
+  ) +
+  theme_minimal() +
+  theme(
+    legend.position = "top",
+    strip.text = element_text(size = 8, face = "bold"), # Hace más bonitos los títulos del facet_grid
+    axis.text.x = element_text(size = 10)
+  )
+
+```
+Ahora se muestra la misma gráfica en la figura \@ref(fig:fig-MF) en dónde se demuestra visualmente que las respuestas no dependen del tipo de universidad sino que solo van a depender del promedio y de que si alguno de los padres estudió un posgrado o no.  
+Finalmente, se pretende probar que en efecto a mayor promedio es mayor la tendencia de querer realizar un posgrado. Para ello, en el chunk "MF" se presentan los coeficientes del modelo propuesto anteriormente, en donde, con una significancia del $0.05$ el test de Wald rechaza que el coeficiente del promedio sea igual a $0$.
+Es decir, se contrastó: 
+$$H_0: \beta_2 = 0 ~~~\text{vs.}~~~ H_a: \beta_2 \neq 0$$
+Ahora bien, calculando el odd ratio para el coeficiente de gpa (Ver chunk "MF") se tiene que $e^{\beta_{2}} = 0.5464796$ nos indica que para cada punto mayor en el promedio la probabilidad de estar en una categoría baja baja un ($1-0.54\% = 0.46\%) lo que significa que a mayor promedio, mayor la tendencia de buscar un posgrado, cosa que se reafirma verificando las dos primeras figuras, y en la figura \@ref(fig:fig-MF) se verifica esto, sobretodo si dichos estudiantes tienen algún padre que estudió un posgrado.
+
