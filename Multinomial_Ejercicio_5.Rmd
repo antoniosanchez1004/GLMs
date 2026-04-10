@@ -45,6 +45,7 @@ library(VGAM)       # Para los modelos multinomiales
 ```
 
 ```{r Leemos nuestros datos, include=FALSE}
+# Requieres el dataframe Preg5
 df_preg5 <- read.csv("C:/Users/admin/Downloads/Preg5.csv")
 # Veamos la estructura de los datos
 str(df_preg5)
