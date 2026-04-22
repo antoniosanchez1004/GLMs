@@ -1,5 +1,6 @@
 ---
 title: "Análisis de Componentes Principales sobre la calidad de vida"
+author: "Luis Antonio López Sánchez"
 output:
   bookdown::pdf_document2:
     number_sections: no
@@ -133,16 +134,16 @@ Usted puede ver que se realizaron dos biplots, a saber, el de la figura \@ref(fi
 - Para el segundo componente, observe que en la parte izquierda superior se encuentran las tasas de homicidio, no es de sorprenderse que México, Colombia o Turquía estén cerca de esas tasas. A sabiendas de que son paises relativamente inseguros.  
 
 ```{r Tabla}
-# Cargar librerías necesarias
+# Librerías necesarias
 library(knitr)
 library(kableExtra)
 
-# Extraer la información de varianza del objeto PCA
+# Extraemos la información de varianza del objeto PCA
 varianza <- pca_oecdCor$sdev^2
 prop_var <- round(varianza / sum(varianza), 4)
 prop_acum <- round(cumsum(prop_var), 4)
 
-# Crear la tabla para las primeras 5 componentes
+# Creamos la tabla para los primeros 5 componentes
 tabla_pca <- data.frame(
   Componente = paste0("PCA", 1:5),
   Eigenvalor = round(varianza[1:5], 3),
@@ -151,7 +152,7 @@ tabla_pca <- data.frame(
   stringsAsFactors = FALSE
 )
 
-# Renombrar columnas para presentación
+# Definimos las columnas
 colnames(tabla_pca) <- c("Componente", "Eigenvalor", "Prop. Varianza", "Prop. Acumulada")
 
 kbl(tabla_pca, booktabs = TRUE, align = "c") %>%
@@ -168,7 +169,7 @@ fviz_eig(pca_oecdCor, addlabels = TRUE, ylim = c(0, 50))
 En la figura \@ref(fig:codo), se refiere a lo dicho con anterioridad.
 ```{r Tabla2}
 
-# Extraemos las cargas de las tres primeros componentes
+# Extraemos las cargas de los cinco primeros componentes
 cargas <- as.data.frame(pca_oecdCor$rotation[, 1:5])
 cargas$Variable <- rownames(cargas)
 
