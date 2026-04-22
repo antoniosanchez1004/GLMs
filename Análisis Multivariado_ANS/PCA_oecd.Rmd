@@ -1,0 +1,26 @@
+---
+title: "Análisis de Componentes Principales sobre la calidad de vida"
+author: "Luis Antonio López Sánchez"
+output:
+  bookdown::pdf_document2:
+    number_sections: no
+    toc: no
+    highlight: tango
+    latex_engine: xelatex
+header-includes: 
+   - \usepackage{float}
+date: "6/04/2026"
+geometry: margin=1.0cm
+urlcolor: blue
+---
+
+```{r}
+# Librerías 
+library(ggplot2)        # Version 4.0.2
+library(ggthemes)       # Version 5.2.0
+library(mvtnorm)        # Version 1.3-3
+library(car)            # Version 3.1-5
+library(factoextra)     # Version 2.0.0
+library(here)           # Version 1.0.2
+library(ggfortify)      # Version 0.4.19
+```
