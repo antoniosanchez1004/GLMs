@@ -14,7 +14,23 @@ geometry: margin=1.0cm
 urlcolor: blue
 ---
 
-```{r}
+```{r Cargamos librerías, include =FALSE}
+#Empezamos limpiando nuestro ambiente
+rm(list = ls(all.names = TRUE))
+
+
+# Configuración global de los bloques de código (chunk's)
+knitr::opts_chunk$set(
+	echo = FALSE,
+	fig.align = "center",
+	fig.dim = c(7.0, 6.0),
+	fig.pos = "H",
+#Agregamos configuraciones para evitar mensajes de advertencias y de errores en el archivo
+	message = FALSE,
+	warning = FALSE,
+	error = F
+)
+
 # Librerías 
 library(ggplot2)        # Version 4.0.2
 library(ggthemes)       # Version 5.2.0
@@ -24,3 +40,155 @@ library(factoextra)     # Version 2.0.0
 library(here)           # Version 1.0.2
 library(ggfortify)      # Version 0.4.19
 ```
+### Indicaciones
+Considera el archivo \textit{oecd.txt}, el cual contiene una serie de mediciones sobre 11 tópicos que la OECD ha identificado como esenciales con respecto a las condiciones y la calidad de vida en distintos países. Realiza un análisis de componentes principales, proporcionando un reporte completo del procedimiento, consideraciones y análisis de resultados.
+
+```{r Cargamos el archivo .text, include = FALSE}
+# Subimos el archivo .text
+
+data <- read.table("C:/Users/admin/Documents/Tarea 1/GLMs/data_ANS/oecd.txt", header = TRUE, sep = " ", quote = "\"")
+
+# Veamos un resumen de las variables para quitar las categoricas y las tipo factor
+str(data)
+summary(data)
+
+# De acuerdo al str, solo podemos quitar las variables [1] y [2] para hacer PCA
+# Pero encontramos que existen variables que contienen NA por lo que habrá que eliminarlas
+
+```
+### Solución
+Se hizo un análisis de la tabla proporcionada en dónde se halló que existen 60 variables de intéres para 42 paises, sin embargo, también nos encontramos con valores "NA" que hacen que PCA no funcione, por lo que se tendrá que hallar un método que nos ayude a quitar columnas con muchos "NA" y a partir de ello, hacer lo mismo pero con las filas, dicho algoritmo está implementado en el chunk "Limpieza". Quedandonos una tabla con 34 paises y 37 variables a examinar. Procedamos a realizar PCA.
+```{r "Limpieza", include=FALSE}
+# Definimos esta variable de nuestros datos, nos será útil para después
+nombres_paises <- data$countries
+
+# Omitimos la primera y la segunda columna, pues son los nombres de los paises completos y abreviados, respectivamente y los metemos en la variable datos_num (va desde la columna 3 hasta la 62)
+datos_num <- data[, 3:ncol(data)]
+
+# Se verifican el total de columnas con NA's
+sum(colSums(is.na(data)) > 0)
+
+# 37 variables con NA's
+
+# Lo primero que tenemos es eliminar las columnas con más NA's:
+# Para esto, se calcula la cantidad de NA's por cada columna (colSums)
+nas_por_columna <- colSums(is.na(datos_num))
+nas_por_columna # Nada más para visualizar que está pasando
+
+# Ordenamos las columnas de menor a mayor cantidad de NA's y seleccionamos las primeras 37
+# Se va a eliminar las columnas con mayor número de Na's 
+columnas_a_mantener <- names(sort(nas_por_columna)[1:37])
+datos_num_reducidos <- datos_num[, columnas_a_mantener]
+
+# Ahora pasemos a las filas que contengan NA's
+filas_completas <- complete.cases(datos_num_reducidos)
+filas_completas # Mucho texto, no lo imprimas !
+# Igual para ver que está pasando
+nas_por_fila <- rowSums(is.na(datos_num_reducidos))
+nas_por_fila # Mucho texto, no lo imprimas!
+# Eliminamos las filas con NA's y lo metemos a data_limpia
+data_limpia <- datos_num_reducidos[filas_completas, ]
+
+# Guardamos los nombres de los países resultantes como rownames (solo las abreviaturas)
+rownames(data_limpia) <- data$countries_short[filas_completas]
+
+# Veamos de que dimensión nos quedó
+dim(data_limpia)
+# 34x37, i.e 34 países y 37 variables
+# Comprobar que no hay NA's
+sum(is.na(data_limpia))  
+# Como es 0, entonces hemos terminado :)
+```
+
+```{r PCA, include=FALSE}
+# Usamos la matriz de correlación
+pca_oecdCor=prcomp(data_limpia ,scale.=TRUE)
+summary(pca_oecdCor)
+
+# Loadings and variance of the components 
+pca_oecdCor$rotation
+pca_oecdCor$sdev^2
+
+```
+### Presentando componentes principales
+```{r Biplot1, fig.pos = "H", fig.cap= "¿Cómo se ve la nube de puntos?", fig.pos = "H", out.width = "50%", fig.height = 2, echo = FALSE}
+# Biplot
+fviz_pca_biplot(pca_oecdCor,title="",
+                ggtheme = theme_minimal(),geom= c("point", 'text'),
+                invisible = "var", repel=TRUE)
+```
+
+```{r Biplot2, fig.pos = "H", fig.cap= "¿Cómo se ven las flechas?", fig.pos = "H", out.width = "50%", fig.height = 2, echo = FALSE}
+fviz_pca_biplot(pca_oecdCor,title="",
+                ggtheme = theme_minimal(),geom= c("point", 'text'),
+                invisible = "ind", repel=TRUE)
+```
+
+Usted puede ver que se realizaron dos biplots, a saber, el de la figura \@ref(fig:Biplot1) y el de la figura \@ref(fig:Biplot2), esto se realizó de este modo, pues era practicamente imposible analizar todo junto dada las dimensiones que se tienen. La ventaja de esto es que podemos inferir algunas cosas sobre estas dos figuras:  
+
+- Observe que existe un patrón: Los países de mayor desarrollo (i.e. del primer mundo) se encuentran agrupados todos a la derecha y alrededor del $0$ del biplot. (Un poco a la izquierda).  
+
+- Nótese que es muy evidente que las variables de mayor bienestar en general se presentan a la derecha del segundo biplot, lo que vuelve a confirmar lo dicho anteriormente. Los países mejor desarrollados van a presentar un mayor índice de bienestar en general. Observe además que los paises mejor desarrollados están muy juntos entre sí, y justamente los mejores índices los tienen ellos.  
+
+- Para el segundo componente, observe que en la parte izquierda superior se encuentran las tasas de homicidio, no es de sorprenderse que México, Colombia o Turquía estén cerca de esas tasas. A sabiendas de que son paises relativamente inseguros.  
+
+```{r Tabla}
+# Cargar librerías necesarias
+library(knitr)
+library(kableExtra)
+
+# Extraer la información de varianza del objeto PCA
+varianza <- pca_oecdCor$sdev^2
+prop_var <- round(varianza / sum(varianza), 4)
+prop_acum <- round(cumsum(prop_var), 4)
+
+# Crear la tabla para las primeras 5 componentes
+tabla_pca <- data.frame(
+  Componente = paste0("PCA", 1:5),
+  Eigenvalor = round(varianza[1:5], 3),
+  Proporción_Varianza = prop_var[1:5],
+  Proporción_Acumulada = prop_acum[1:5],
+  stringsAsFactors = FALSE
+)
+
+# Renombrar columnas para presentación
+colnames(tabla_pca) <- c("Componente", "Eigenvalor", "Prop. Varianza", "Prop. Acumulada")
+
+kbl(tabla_pca, booktabs = TRUE, align = "c") %>%
+  kable_styling(latex_options = c("striped", "scale_down", "hold_position"))
+
+```
+
+A partir de la tabla anterior, se muestra que son necesarios hasta 5 componentes principales para explicar al menos el $84\%$ de la varianza total, lo que complica la interpretación. A continuación se muestra gráficamente esto:  
+
+```{r codo, fig.pos = "H", fig.cap= "Gráfico del codo", fig.pos = "H", out.width = "50%", fig.height = 2, echo = FALSE}
+fviz_eig(pca_oecdCor, addlabels = TRUE, ylim = c(0, 50))
+```
+
+En la figura \@ref(fig:codo), se refiere a lo dicho con anterioridad.
+```{r Tabla2}
+
+# Extraemos las cargas de las tres primeros componentes
+cargas <- as.data.frame(pca_oecdCor$rotation[, 1:5])
+cargas$Variable <- rownames(cargas)
+
+# Ordenar por la magnitud de mayor a menor (Para PC1)
+cargas_ordenadas <- cargas[order(abs(cargas$PC1), decreasing = TRUE), ]
+
+# Seleccionamos las 10 variables más importantes 
+n <- 10
+cargas_top <- cargas_ordenadas[1: n, ]
+
+# Redondeamos valores
+cargas_top[, 1:5] <- round(cargas_top[, 1:5], 3)
+
+# Crear tabla con kable
+kbl(cargas_top, booktabs = TRUE, align = "c", row.names = FALSE) %>%
+  kable_styling(latex_options = c("striped", "scale_down", "hold_position"))
+```
+
+Finalmente presentamos la tabla con las "cargas" de las variables, presentadas de mayor a menor. Note que se puede crear un índice con el primer componente principal, que puede denominarse como: Desarrollo general, pues abarca muchas variables que están bajo el rubro de un bienestar, además se observa que todos los pesos son positivos, lo que significa una correlación positiva, a mayor valor de las variables, mayor el componente principal.  
+
+El segundo componente principal divide  a los países donde el bienestar viene más por el empleo y la satisfacción personal, de aquellos donde destaca más la seguridad percibida.  
+
+El tercer componente lineal refleja la percepción subjetiva de felicidad, independientemente de los datos económicos.  
