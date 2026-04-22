@@ -1,6 +1,5 @@
 ---
 title: "Análisis de Componentes Principales sobre la calidad de vida"
-author: "Luis Antonio López Sánchez"
 output:
   bookdown::pdf_document2:
     number_sections: no
@@ -40,6 +39,7 @@ library(factoextra)     # Version 2.0.0
 library(here)           # Version 1.0.2
 library(ggfortify)      # Version 0.4.19
 ```
+
 ### Indicaciones
 Considera el archivo \textit{oecd.txt}, el cual contiene una serie de mediciones sobre 11 tópicos que la OECD ha identificado como esenciales con respecto a las condiciones y la calidad de vida en distintos países. Realiza un análisis de componentes principales, proporcionando un reporte completo del procedimiento, consideraciones y análisis de resultados.
 
