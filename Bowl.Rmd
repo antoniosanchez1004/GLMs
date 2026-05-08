@@ -1,0 +1,207 @@
+---
+title: "Bowl"
+output:
+  bookdown::pdf_document2: 
+    number_sections: no
+    toc: no
+    highlight: tango
+    latex_engine: xelatex
+header-includes: 
+   - \usepackage{float}
+date: "01/04/2026"
+geometry: margin=1.0cm
+urlcolor: blue
+---
+
+```{r setup, include = FALSE}
+
+#Empezamos limpiando nuestro ambiente
+rm(list = ls(all.names = TRUE))
+
+# Configuración global de los bloques de código (chunk's)
+knitr::opts_chunk$set(
+	echo = FALSE,
+	fig.align = "center",
+	fig.dim = c(5.5, 4.0),
+	fig.pos = "H",
+#Agregamos configuraciones para evitar mensajes de advertencias y de errores en el archivo
+	message = FALSE,
+	warning = FALSE,
+	error = F
+)
+library(dplyr)
+library(usmap)                # Version 0.7.1
+library(vegan)                # Version 2.6-10
+library(xtable)               # Version 1.8-4
+library(MASS)                 # Version 7.3-60
+library(scatterplot3d)        # Version 0.3-44
+library(ggplot2)              # Version 3.5.2
+library(ggthemes)             # Version 5.1.0
+library(geodist)              # Version 0.1.0
+library(sf)                   # Version 1.0-19
+library(here)                 # Version 1.0.1
+```
+
+Nuestro objetivo es modelar un _bowl_ en $R^3$ a partir de las siguientes coordenadas:  
+$$x_i=\frac{1}{2}\sqrt{v_i}\cos(2\pi u_i)$$
+$$y_i=\frac{1}{2}\sqrt{v_i}\sin(2\pi u_i)$$
+$$z_i=v_i-\frac{1}{2}$$
+en dónde $u_i$ y $v_i$ son variables aleatorias distribuidas uniformemente en el intervalo $(0,1)$. i.e $u_i, v_i \sim Unif(0,1)$.
+
+
+```{r fig-Bowl, fig.cap= "Bowl generado", out.width = "90%", fig.height = 3}
+
+n <- 1000
+set.seed(123) # Fijamos una semilla
+u <- runif(n) # Generamos 1000 muestras de una distribución uniforme
+v <- runif(n) # También para v
+
+# Definimos las coordenadas
+x <- 0.5 * sqrt(v) * cos(2 * pi * u)
+y <- 0.5 * sqrt(v) * sin(2 * pi * u)
+z <- v - 0.5
+
+# Vamos a hacer un scatterplot
+library(scatterplot3d)
+
+# Definamos los colores 
+colores <- colorRampPalette(c("blue", "green", "yellow", "red"))(n)
+# Ordenamos los colores 
+idx_col <- rank(z)
+scatterplot3d(x, y, z,
+              color = colores[idx_col],
+              pch = 19,
+              main = "Bowl",
+              xlab = "x", ylab = "y", zlab = "z")
+
+```
+En la figura \@ref(fig:fig-Bowl) se presenta la simulación del bowl en $R^3$ en d[onde se hicieron $1000$ simulaciones para las variables alearorias anteriormente descritas. A continuación,k se hará un escalamiento dimensional métrico para $k=2$, a continuación se presenta el resultado, claramente construyendo anteriormente la matriz eucliadiana:  
+```{r Matriz Euclidiana}
+# Crearemos la matriz euclidiana, usando los puntos generados
+puntos <- cbind(x, y, z)
+
+#  Matriz de distancias d
+d <- dist(puntos, method = "euclidean")
+```
+
+```{r MDS métrico }
+# Hacemos el escalamiento
+mds <- cmdscale(d, k=2, eig = TRUE)
+```
+
+```{r fig-MDS, fig.cap= "MDS Métrico"}
+coord_mds <- mds$points
+
+# Graficar con el mismo color
+plot(coord_mds[,1], coord_mds[,2],
+     col = colores[idx_col],
+     pch = 19,
+     main = "MDS métrico con k = 2",
+     xlab = "Dimensión 1", ylab = "Dimensión 2")
+```
+En la figura \@ref(fig:fig-MDS) se presentan los resultados del escalamiento multidimensional, nótese que no se pierde del todo la estructura topológica del bowl, pues se ve que los puntos que estaban en la base del bowl se van hacia la parte izquierda del escalamiento y así se van separando hacia la derecha, recordando que este método quiere preservar las distancias originales.  
+
+```{r}
+library(knitr)
+library(kableExtra)
+# Métricas GOF
+gof <- mds$GOF
+
+# Tabla
+tabla_gof <- data.frame(
+  Métrica = c("GOF", "GOF (varianza total)"),
+  Valor   = round(gof, 4),
+  stringsAsFactors = FALSE
+)
+
+kbl(tabla_gof, booktabs = TRUE, align = "c") %>%
+  kable_styling(latex_options = c("striped", "hold_position"))
+
+```
+En esta tabla se presenta el _GOF (Goodness of fit)_ que es la bondad de ajuste del MDS, funciona al igual que la acumulación de varianza de PCA, por lo que existe una similar interpretación para el _GOF_. Este valor del $0.71$ indica que las dos dimensiones capturan dicho total de las varianzas de las distancias originales, si bien es un buen valor, podríamos encontrar otra represenración mejor, por lo que vamos a probar otros métodos a continuación.
+
+```{r MDS no métrico, include=FALSE}
+library(MASS)
+
+# MDS no métrico con k=2 
+mds_nm <- isoMDS(d, k = 2)
+```
+
+```{r fig-MDSnM, fig.cap= "MDS no Métrico"}
+coord_nm <- mds_nm$points
+plot(coord_nm[,1], coord_nm[,2],
+     col = colores[idx_col],
+     pch = 19,
+     main = paste("MDS no métrico"),
+     xlab = "Dimensión 1", ylab = "Dimensión 2")
+```
+Ahora bien, en la figura \@ref(fig:fig-MDSnM) se presenta un escalamiento dimensional con $k=2$ pero no se logra capturar del todo la estructura del bowl, por lo que podemos decir que no es superior al _MDS métrico_.
+
+```{r}
+# Métricas GOF
+stress <- mds_nm$stress
+
+# Tabla
+tabla_stress <- data.frame(
+  Métrica = c("stress"),
+  Valor   = round(stress, 4),
+  stringsAsFactors = FALSE
+)
+
+kbl(tabla_stress, booktabs = TRUE, align = "c") %>%
+  kable_styling(latex_options = c("striped", "hold_position"))
+```
+El objetivo del escalamiento dimensional no métrico es optimizar el stress, e.g. $S_k  \geq 20\%$ es pobre _(regla de dedo)_, por lo que este escalamiento no aporta una mejor solución al MDS métrico. Ahora, probaremos _isomap_.
+
+```{r isomap 1}
+iso=isomap(d,ndim = 2, k = 5)
+```
+
+```{r fig-iso, fig.cap= "Isomap 1"}
+# Coordenadas Isomap
+coord_iso <- iso$points
+
+# Gráfico con el mismo mapeo de color
+plot(coord_iso[,1], coord_iso[,2],
+     col = colores[idx_col],
+     pch = 19,
+     main = "Isomap K = 5",
+     xlab = "Dimensión 1", ylab = "Dimensión 2")
+```
+
+```{r isomap 2}
+iso_10=isomap(d,ndim = 2, k = 10)
+```
+
+```{r fig-iso2, fig.cap= "Isomap 2"}
+# Coordenadas Isomap
+coord_iso_10 <- iso_10$points
+
+# Gráfico con el mismo mapeo de color
+plot(coord_iso_10[,1], coord_iso_10[,2],
+     col = colores[idx_col],
+     pch = 19,
+     main = "Isomap K = 10",
+     xlab = "Dimensión 1", ylab = "Dimensión 2")
+```
+
+
+```{r isomap 3}
+iso_15=isomap(d,ndim = 2, k = 15)
+```
+
+```{r fig-iso3, fig.cap= "Isomap 3"}
+# Coordenadas Isomap
+coord_iso_15 <- iso_15$points
+
+# Gráfico con el mismo mapeo de color
+plot(coord_iso_15[,1], coord_iso_15[,2],
+     col = colores[idx_col],
+     pch = 19,
+     main = "Isomap K = 15",
+     xlab = "Dimensión 1", ylab = "Dimensión 2")
+```
+Se presentan 3 figuras, a saber: \@ref(fig:fig-iso), \@ref(fig:fig-iso2) y \@ref(fig:fig-iso3), en donde se aprecian 3 isomaps para $k = 5, 10, 15$ vecinos más cercanos, para $k = 5$ se observa que se aprecia como el bowl ahora sí es bien aplastado, donde intuitivamente la parte baja del bowl tiene que verse en el centro y de partir de ahí se forman curvas de nivel que detallan las altura del bowl, mientras más se abre quiere decir que está más alto en el bowl. Las representaciones para $k = 10$ y para $k = 15$ reafirman esta idea, los colores se mantienen (los iniciales propuestos en la simulación) y se ve como se ajustan mejor las curvas de nivel, dejando en claro, que isomap representó mejor el bowl. 
+
+
+
