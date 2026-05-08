@@ -1,0 +1,142 @@
+---
+title: "Análisis de correspondencias múltiple"
+output:
+  bookdown::pdf_document2: 
+    number_sections: no
+    toc: no
+    highlight: tango
+    latex_engine: xelatex
+header-includes: 
+   - \usepackage{float}
+date: "01/04/2026"
+geometry: margin=1.0cm
+urlcolor: blue
+---
+
+```{r setup, include = FALSE}
+
+#Empezamos limpiando nuestro ambiente
+rm(list = ls(all.names = TRUE))
+
+# Configuración global de los bloques de código (chunk's)
+knitr::opts_chunk$set(
+	echo = FALSE,
+	fig.align = "center",
+	fig.dim = c(5.5, 4.0),
+	fig.pos = "H",
+#Agregamos configuraciones para evitar mensajes de advertencias y de errores en el archivo
+	message = FALSE,
+	warning = FALSE,
+	error = F
+)
+
+# Librerías
+library(ggplot2)          # Version 4.0.2
+library(ggthemes)         # Version 5.2.0
+library(RColorBrewer)     # Version 1.1-3
+library(expm)             # Version 1.0-0
+library(ca)               # Version 0.71.1
+library(here)             # Version 1.0.2
+library(dplyr)            # Version 1.2.1
+library(readxl)           # Version 1.4.5
+library(FactoMineR)
+library(factoextra)
+```
+
+Se tienen unos datos con información de supervivencias de $764$ individuos provenientes de 3 ciudades y desagregados por edades, nuestro objetivo es realizar un análisis de correspondencias múltiple con la matriz de _Burt_ (obtenida por la matriz de indicadoras de 764x8 dimensiones). Dicha matriz se va a presentar a continuación, pues el producto de:  
+$$Z^TZ$$  
+Dónde $Z$ es la matriz de indicadoras y $Z^T$ es su transpuesta. 
+
+```{r Leemos los datos y creamos la matriz indicadora}
+datos <- read.table("C:/Users/admin/Documents/survival.txt", header = TRUE)
+
+#  Convertimos a factor 
+datos$Survival <- as.factor(datos$Survival)
+datos$Age      <- as.factor(datos$Age)
+datos$City     <- as.factor(datos$City)
+
+# Creamos la matriz indicadora Z con tab.disjonctif
+
+Z <- tab.disjonctif(datos)
+
+# Puede verificarse que tiene 764 filas y 8 columnas.
+
+```
+
+```{r Tabla de la Matriz de Burt}
+
+library(kableExtra)
+
+B <- t(Z) %*% Z
+
+# Convertir la matriz de Burt a data frame para la tabla
+df_burt <- as.data.frame(B)
+
+# Generamos la tabla
+kbl(df_burt, 
+    booktabs = TRUE, 
+    align = "c", 
+    caption = "Matriz de Burt") %>%
+  kable_styling(latex_options = c("striped", "hold_position", "scale_down")) %>%
+  add_header_above(c(" " = 1, "Supervivencia" = 2, "Edad" = 3, "Ciudad" = 3)) %>%
+  column_spec(1, bold = TRUE)
+```
+De esta tabla, podemos decir algunas cosas:  
+- $554$ personas sobrevivieron.  
+- El mayor grupo de edad es el $50-69$ con $351$ individuos.  
+- La mayor ciudad con respuestas fue _Tokyo_ con $290$ personas.  
+Dicho esto, procedemos con un análisis de correspondencias múltiple usando la matriz de Burt por ser más manejable. 
+
+```{r MCA con matriz de Burt}
+res.caburt <- CA(B, graph = FALSE)
+```
+
+```{r fig-MCA, fig.cap= "Supervivencia por ciudad y edad"}
+fviz_ca_biplot(res.caburt, 
+               repel = TRUE, 
+               col.row = "blue", 
+               col.col = "red",
+               map = "rowprincipal",
+               arrow = c(FALSE, FALSE),
+               title = "MCA - Supervivencia") +
+  theme_minimal()
+```
+Nótese que en la figura \@ref(fig:fig-MCA) del lado izquierdo se agrupan la muestra que sobrevió y del lado derecho la que no.  
+Para Tokyo parece verse que existe una asociación las personas jovenes y la supervivencia, lo que puede indicar que Tokyio es la mejor ciudad con mayor supervivencia, mientras que con Bostón parece ser lo contrario. Parece que es una ciudad con mucho riesgo para sus adultos mayores. Y para Glamorgan, parece existir un equilibrio, ni más ni menos para el grupo de $50-69$. 
+
+
+```{r}
+library(kableExtra)
+
+# Parámetros (3 variables)
+K <- 3
+eig_val <- res.caburt$eig[, 1]
+media_inercia <- 1 / K
+
+# Varianza ajustada
+indices <- which(eig_val > media_inercia)
+if(length(indices) == 0) indices <- 1:2
+autovalores_ajustados <- ( (K / (K - 1)) * (eig_val[indices] - media_inercia) )^2
+porcentaje_ajustado <- (autovalores_ajustados / sum(autovalores_ajustados)) * 100
+acumulado_ajustado <- cumsum(porcentaje_ajustado)
+
+# Creamos la tabla 
+tabla <- data.frame(
+  "Dimensión" = paste("Dimensión", 1:length(indices)),
+  "Autovalor Ajustado" = round(autovalores_ajustados, 4),
+  "Varianza Ajustada (%)" = round(porcentaje_ajustado, 2),
+  "Acumulado Ajustado (%)" = round(acumulado_ajustado, 2),
+  check.names = FALSE
+)
+
+# Renderizamos
+kbl(tabla, 
+    booktabs = TRUE, 
+    align = "c", 
+    caption = "Inercias Ajustadas",
+    col.names = c("Dimensión", "Autovalor Ajustado", "Varianza Ajustada (%)", "Acumulado Ajustado (%)")) %>%
+  kable_styling(latex_options = c("striped", "hold_position"))
+
+```
+Finalmente, en la tabla se aprecia que los dos primeras dimensiones explican el $89.35\%$ de variabilidad de nuestros datos. Por lo que modelan bien nuestros datos y dan buena base de confirmar lo anterior dicho. 
+En conclusión, si quieren vivir, vayan a Japón. 
