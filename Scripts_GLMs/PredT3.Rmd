@@ -1,0 +1,538 @@
+---
+title: "Predicción"
+author: "Luis Antonio López Sánchez"
+output:
+  bookdown::pdf_document2:
+    number_sections: no
+    toc: no
+    highlight: tango
+    latex_engine: xelatex
+header-includes: 
+   - \usepackage{float}
+date: "6/04/2026"
+geometry: margin=1.0cm
+urlcolor: blue
+---
+
+```{r setup, include=FALSE}
+
+#Empezamos limpiando nuestro ambiente
+rm(list = ls(all.names = TRUE))
+
+
+# Configuración global de los bloques de código (chunk's)
+knitr::opts_chunk$set(
+	echo = FALSE,
+	fig.align = "center",
+	fig.dim = c(5, 3),
+	fig.pos = "H",
+#Agregamos configuraciones para evitar mensajes de advertencias y de errores en el archivo
+	message = FALSE,
+	warning = FALSE,
+	error = F
+)
+
+
+
+# Librerías
+library(dplyr)      # Para el manejo de datos
+library(ggplot2)    # Para realizar gráficas
+library(kableExtra) # Para un mejor manejo de tablas
+library(GGally)     # Para realizar análisis descriptivo fácilmente
+library(multcomp)   # Para pruebas de hipótesis
+library(car)        # Para funciones útiles de modelos de regresión lineal múltiple
+library(broom)      # Para obtener los residuales estandarizados
+library(DHARMa)     # Para la verificación de supuestos
+library(leaps)      # Para el cálculo de los mejores conjuntos de variables por diversos métodos
+library(bestglm)    # Para obtener el mejor subconjunto
+library(glmnet)     # Para utilizar la penalización Lasso
+library(factoextra) # Para obtener los componentes principales
+library(psych)      # Para obtener el análisis factorial y PCA
+library(plotly)     # Para gráficas en 3D
+library(cowplot)    # Para unir gráficas
+library(FactoMineR) # Para PCA
+library(stringr)    # Para manipulación de datos
+library(tidyr)      # Más manipulación de datos
+library(caret)      # Para predicción
+library(MASS)       # Para lda y qda
+library(knitr)      # Para tablas
+library(faraway)    # Para los datos
+
+```
+
+Nuestro objetivo en este caso, es realizar un análisis de las variables clínicas observadas en pacientes con el fin de realizar predicciones sobre el porcentaje de grasa corporal en nuevos pacientes.\
+Para esto, iremos probando distintos esquemas de entrenamiento tales como:\
+- Modelo lineal generalizado para datos continuos con liga identidad y distribución Gaussiana (con los efectos principales de las variables, así como su interacción o transformación).\
+- Modelo lineal generalizado considerando una distribución gaussiana y liga identidad una selección de variables con el criterio *BIC*.\
+- Modelo lineal generalizado considerando la misma distribución gaussiana y liga identidad con una selección de variables con el método Lasso.\
+- Modelo lineal generalizado para datos continuos con liga identidad y distribución Gaussiana: Considerando los primeros *k* componentes principales que cumplan con explicar al menos del $80\%$ de la variabilidad.
+
+Ahora bien, antes de empezar, tenemos que hacerle un preprocesamiento a nuestros datos, en el chunk *Datos y limpieza* se encuentra dicha labor.\
+Es importante mencionar que, del dataset a analizar, no se tomarán en cuenta todas las variables, pues podrían tratarse de elementos repetidos de otras variables, por ejemplo, una escala distinta. A continuación se presenta un análisis de outliers en las variables de *weight y heigth.*
+
+```{r Datos y Limpieza, include=FALSE}
+help("fat") # Para ver de que dataset vamos a trabajar
+str(fat) # Todas las variables son númericas
+
+# Box plot para detectar outliers de la variable weight
+boxplot(fat[, "weight"],
+        col = "lightblue",
+        main = "Outliers para la variable weight",
+        xlab = "Variable weight",
+        ylab = "Valores",
+        outcol = "red",
+        outpch = 16)
+        
+  
+# Box plot para detectar outliers de la variable height
+
+boxplot(fat[, "height"],
+        col = "lightblue",
+        main = "Outliers para la variable height",
+        xlab = "Variable height",
+        ylab = "Valores",
+        outcol = "red",
+        outpch = 16)
+
+
+summary(fat) # Con la inspección a los box plots y el summary concluimos que 
+# existen outliers, procedemos a eliminarlos
+# Por ejemplo, en brozek, es imposible que se tenga 0% de grasa corporal
+# La altura se mide en pulgadas, es raro que alguien mida 29.5 pulgadas cuando
+# La media se encuentra en 70.15 pulgadas
+# Para el peso, la media se encuentra en los 178.9 libras, lo que hace que 
+# Sea muy raro tener a alguien con 363.1 libras, no es fisicamente imposible 
+# Pero sí es muy extraño
+# El valor que se encuentra entre los 260 libras no se considera extraño, por lo
+# que no se elimina
+# Vamos a eliminarlos usando la función subset de R
+# Que basicamente devuelve objetos con ciertas condiciones
+
+fat_lim <- subset(
+                  fat, # Objeto a subconjuntar
+                  brozek > 0 & height > 40 & weight < 300, # Estas son las condiciones para eliminar los outliers
+                  select = -c(siri, density, free) # Son las variables a quitar
+                  )
+
+# Verificamos que ya no hayan outliers 
+summary(fat_lim)
+# Parece que todo está normal 
+
+# Generamos los pliegues para todos los métodos
+set.seed(2) # Para reproducibilidad
+# length.out para generar pliegues equitativos
+pliegues <- sample(rep(1:5, length.out = nrow(fat_lim)))
+# Procedemos a lo siguiente
+
+```
+
+```{r out, fig.cap="Análisis de outliers para las variables de peso y altura",  fig.dim = c(8, 4)}
+# Para que salgan las dos imagenes juntas
+par(mfrow = c(1, 2))
+# Box plot para detectar outliers de la variable weight
+boxplot(fat[, "weight"],
+        col = "lightblue",
+        main = "Outliers para la variable weight",
+        xlab = "Variable weight",
+        ylab = "Valores",
+        outcol = "red",
+        outpch = 16)
+        
+  
+# Box plot para detectar outliers de la variable height
+
+boxplot(fat[, "height"],
+        col = "lightblue",
+        main = "Outliers para la variable height",
+        xlab = "Variable height",
+        ylab = "Valores",
+        outcol = "red",
+        outpch = 16)
+
+```
+
+En la figura \@ref(fig:out) se presentan los outliers para las variables anteriormente dichas. Nótese que para el peso hay un valor de alrededor $260$ libras, lo cuál no es extraño en cuestión, por lo que se opta por dejarlo, con los respecto a los otros valores, sí se optan por eliminarlos, por lo que, ya podemos a empezar a probar distintos modelos.
+
+```{r ModcEPyT, include =FALSE}
+### Nota: Los modelos ajustados mediante la base de datos completos son de referencia
+
+# Se ajusta el modelo con efectos principales
+mod1 <- glm(brozek ~ ., family = gaussian(link = "identity"), data = fat_lim)
+
+# Consideremos ajustar un modelo con alguna transformación
+# Para esto, consideremos la función residualPlots que nos ayude a 
+# Identificar que variables requieren una transformación:
+## Test de Tukey
+
+# residualPlots(mod1, tests = TRUE, plot =FALSE)
+         # Test stat Pr(>|Test stat|)    
+#age        4.0467        0.0442587 *  
+#weight    82.4279        < 2.2e-16 ***
+#height     0.3906        0.5319681    
+#adipos    26.4881        2.652e-07 ***
+#neck       0.0902        0.7639640    
+#chest     26.5115        2.620e-07 ***
+#abdom     31.4993        1.995e-08 ***
+#hip      104.2536        < 2.2e-16 ***
+#thigh    106.5802        < 2.2e-16 ***
+#knee      11.2214        0.0008086 ***
+#ankle      3.7680        0.0522411 .  
+#biceps   104.7119        < 2.2e-16 ***
+#forearm    2.1182        0.1455621    
+#wrist      0.8404        0.3592852    
+#---
+#Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
+
+# Las variables que requieren una transformación al cuadrado son las que tienen astericos
+# Es decir: age, weight, adipos, chest, abdom, hip, thigh, knee y biceps 
+# Consideremos la interacción entre  weight y height pues es muy intuitivo
+
+# Ajustemos el modelo con lo anterior mencionado
+
+mod2 <- glm(
+  brozek ~ age + I(age^2) + 
+           weight + I(weight^2) + 
+           height + 
+           adipos + I(adipos^2) + 
+           neck + 
+           chest + I(chest^2) + 
+           abdom + I(abdom^2) + 
+           hip + I(hip^2) + 
+           thigh + I(thigh^2) + 
+           knee + I(knee^2) + 
+           ankle + 
+           biceps + I(biceps^2) + 
+           forearm + 
+           wrist + 
+           weight:height, 
+  family = gaussian(link = "identity"), 
+  data = fat_lim
+)
+
+```
+
+```{r ModRef, include =FALSE}
+
+# Considere que los modelos que se hagan mediante selección BIC se seleccionaran dentro
+# de cada pliegue
+# Aquí solo se guardan las fórmulas completas para referencia (no se usarán en la evaluación)
+# Modelos y selección de variables mediante stepAIC y el criterio BIC
+n <- nrow(fat_lim)
+mod1_BIC_referencia <- stepAIC(mod1, # Modelo de efectos principales
+                               direction = "both",
+                               k = log(n), # Para BIC
+                               trace = FALSE)
+mod2_BIC_referencia <- stepAIC(mod2, # Modelo con transformaciones 
+                               direction = "both",
+                               k = log(n), # Para BIC
+                               trace = FALSE)
+```
+
+```{r LassoEP, include =FALSE}
+# Hagamos selección Lasso mediante 5CV
+## Modelo de efectos principales
+# Definimos la matriz X, y
+X <- model.matrix(brozek ~ ., data = fat_lim)[, -1]
+y <- fat_lim$brozek
+
+lasso_ep <- cv.glmnet(X, y, alpha = 1, nfolds = 5)
+
+# Extraemos los coeficientes usando la lambda óptima
+coef_ep <- as.matrix(coef(lasso_ep, s = "lambda.min"))
+
+# Filtrar para ver solo las variables distintas de 0
+vars_ep <- rownames(coef_ep)[coef_ep[, 1] != 0]
+vars_ep  <- vars_ep[vars_ep != "(Intercept)"]
+
+# Mostramos las variables resultantes
+print(vars_ep)
+
+# Construimos la fórmula para el glm 
+glm_lasso_for <- as.formula(paste("brozek ~", paste(vars_ep, collapse = " + ")))
+
+# Ajustamos el GLM 
+modelo_lasso <- glm(glm_lasso_for, family = gaussian(link = "identity"), data = fat_lim)
+
+# Vemos el summary
+summary(modelo_lasso)
+
+```
+
+```{r LassoC, include =FALSE}
+# Creamos la matriz X usando el modelo 2 (con transformaciones)
+X_comp <- model.matrix(
+  brozek ~ age + I(age^2) + weight + I(weight^2) + height + 
+           adipos + I(adipos^2) + neck + chest + I(chest^2) + 
+           abdom + I(abdom^2) + hip + I(hip^2) + thigh + I(thigh^2) + 
+           knee + I(knee^2) + ankle + biceps + I(biceps^2) + 
+           forearm + wrist + weight:height, 
+  data = fat_lim
+)[, -1]
+# Misma variable objetivo:
+# y <- fat_lim$brozek
+
+# Ajustamos el modelo Lasso
+
+lasso_comp <- cv.glmnet(X_comp, y, alpha = 1, nfolds = 5)
+
+# Extraer los coeficientes con la lambda óptima
+coef_comp<- as.matrix(coef(lasso_comp, s = "lambda.min"))
+
+#  Filtramos las variables distintas de 0
+vars_comp <- rownames(coef_comp)[coef_comp[, 1] != 0]
+vars_comp <- vars_comp[vars_comp != "(Intercept)"]
+
+print(vars_comp)
+
+
+# Definimos la fórmula usar en el glm
+glm_lasso_for_c <- as.formula(paste("brozek ~", paste(vars_comp, collapse = " + ")))
+# Ajustamos el glm
+lasso_glm_comp <- glm(glm_lasso_for_c, family = gaussian(link = "identity"), data = fat_lim)
+
+summary(lasso_glm_comp)
+
+coef_lasso_final <- coef(lasso_comp, s = "lambda.min")
+# Mostrar solo los distintos de cero (redondeados)
+coef_lasso_final <- as.matrix(coef_lasso_final)
+coef_lasso_final[coef_lasso_final != 0, , drop = FALSE]
+
+
+```
+
+```{r ModGamma, include=FALSE}
+# Consideramos un modelo gamma con liga log y el modelo con transformaciones
+
+mod3 <-glm(brozek ~ age + I(age^2) + 
+           weight + I(weight^2) + 
+           height + 
+           adipos + I(adipos^2) + 
+           neck + 
+           chest + I(chest^2) + 
+           abdom + I(abdom^2) + 
+           hip + I(hip^2) + 
+           thigh + I(thigh^2) + 
+           knee + I(knee^2) + 
+           ankle + 
+           biceps + I(biceps^2) + 
+           forearm + 
+           wrist + 
+           weight:height, 
+           family = Gamma(link = "log"),
+           data = fat_lim)
+# Selección por pasos pues no se usará en la evaluación
+# Mismo criterio: BIC
+mod_gamma_BIC_referencia <- stepAIC(mod3, direction = "both", k = log(n), trace = FALSE)
+
+```
+
+Después de ajustar los modelos y realizar selección de variables se procedió a evaluar el poder predictivo de todos los modelos anteriores mediante validación cruzada de 5 pliegues: Para cada pliegue se entrena el modelo con $4/5$ de los datos (*train*), luego, se predice sobre el $1/5$ restante (*test*) y se repite ese proceso $5$ veces y al final se calculan métricas como el *MSE, MAE y* $R^2$ realizando comparaciones entre el valor real y las predicciones. Para cada modelo se realizó el mismo procedimiento para ser justos con las comparaciones.\
+Usted puede ver los modelos ajustados con el dataset completo en los chunks siguientes: *ModcEPyT, ModRef, LassoEP, LassoC, ModGamma*.\
+La metodología para escoger el modelo con transformaciones fue el siguiente:\
+Se ajustó el primer modelo de efectos principales y se le realizó un test Tukey para analizar que variables necesitan una transformación al cuadrado y precisamente ese modelo resultante fue el usado para hacer la selección de variables (también el de efectos principales) y fue la base para el modelo gamma de liga logaritmica (pues la variable a predecir es continua y positiva). Finalmente, aunado al modelo con las variables transformadas se le decidió incluir una interacción entre las variables *weight y height.*\
+*Todos los detalles están en el chunk ModcEPyT.*
+
+A continuación se presenta la tabla que resume lo anterior dicho, el modelo y sus métricas de predicción descritas anteriormente. *Nota: Los métodos de predicción se realizaron con una semilla de 2.*
+
+```{r PredMods}
+# Preparación para las preddiciones
+# Ya habíamos definido los pliegues
+
+# Vectores para almacenar predicciones
+preds_mod1        <- numeric(nrow(fat_lim))
+preds_mod2        <- numeric(nrow(fat_lim))
+preds_mod1_BIC    <- numeric(nrow(fat_lim))
+preds_mod2_BIC    <- numeric(nrow(fat_lim))
+preds_gamma_BIC   <- numeric(nrow(fat_lim))
+preds_pca         <- numeric(nrow(fat_lim))
+preds_lasso       <- numeric(nrow(fat_lim))
+preds_lasso_comp  <- numeric(nrow(fat_lim))
+
+# Misma variable a predecir
+# y <- fat_lim$brozek
+
+# Para los modelos BIC necesitamos las formulas de los modelos
+formula_mod1 <- brozek ~ . # Efectos principales
+# Y el modelo con transformaciones
+formula_mod2 <- brozek ~ age + I(age^2) + weight + I(weight^2) + height + 
+                adipos + I(adipos^2) + neck + chest + I(chest^2) + 
+                abdom + I(abdom^2) + hip + I(hip^2) + thigh + I(thigh^2) + 
+                knee + I(knee^2) + ankle + biceps + I(biceps^2) + 
+                forearm + wrist + weight:height
+
+# Bucle for para predicción de los modelos
+for(i in 1:5) {
+  idx_train <- which(pliegues != i)
+  idx_test  <- which(pliegues == i)
+  # Dividimos los datos en train y test
+  datos_train <- fat_lim[idx_train, ]
+  datos_test  <- fat_lim[idx_test, ]
+  
+  # Modelo de efectos principales
+  mod1_train <- glm(formula_mod1, family = gaussian(link="identity"), data = datos_train)
+  preds_mod1[idx_test] <- predict(mod1_train, newdata = datos_test, type = "response")
+  
+  #  Modelo con transformaciones
+  mod2_train <- glm(formula_mod2, family = gaussian(link="identity"), data = datos_train)
+  preds_mod2[idx_test] <- predict(mod2_train, newdata = datos_test, type = "response")
+  
+  # Selección BIC dentro del conjunto train y los pliegues
+  # Usaremos stepAIC con k = log(n_train)
+  n_train <- nrow(datos_train) # Tamaño del conjunto train
+  mod1_bic_train <- stepAIC(glm(brozek ~ .,
+                                data = datos_train, 
+                                family = gaussian(link = "identity")), 
+                                direction = "both", 
+                                k = log(n_train), 
+                                trace = FALSE)
+                            
+  preds_mod1_BIC[idx_test] <- predict(mod1_bic_train, newdata = datos_test, type = "response")
+  
+  # Selección BIC dentro del conjunto train y los pliegues 
+  # Usando stepAIC con k = log(n_train)
+  mod2_bic_train <- stepAIC(glm(formula_mod2, data = datos_train, family = gaussian(link = "identity")),
+                            direction = "both", k = log(n_train), trace = FALSE)
+  preds_mod2_BIC[idx_test] <- predict(mod2_bic_train, newdata = datos_test, type = "response")
+  
+  # Gamma con enlace log y selección BIC
+  # Replicamos lo mismo de los dos modelos anteriores 
+  mod_gamma <- glm(formula_mod2, data = datos_train, family = Gamma(link="log"))
+  mod_gamma_bic_train <- stepAIC(mod_gamma, direction = "both", k = log(n_train), trace = FALSE)
+  preds_gamma_BIC[idx_test] <- predict(mod_gamma_bic_train, newdata = datos_test, type = "response")
+  
+  # Lasso de efectos principales 
+  
+  X_train <- model.matrix(brozek ~ ., data = datos_train)[, -1]
+  y_train <- datos_train$brozek
+  X_test  <- model.matrix(brozek ~ ., data = datos_test)[, -1]
+  cv_lasso <- cv.glmnet(X_train, y_train, alpha = 1, nfolds = 5)
+  preds_lasso[idx_test] <- predict(cv_lasso, newx = X_test, s = "lambda.min")
+  
+
+  # Lasso con transformaciones
+  Xc_train <- model.matrix(formula_mod2, data = datos_train)[, -1]
+  Xc_test  <- model.matrix(formula_mod2, data = datos_test)[, -1]
+  cv_lasso_complejo <- cv.glmnet(Xc_train, y_train, alpha = 1, nfolds = 5)
+  preds_lasso_comp[idx_test] <- predict(cv_lasso_complejo, newx = Xc_test, s = "lambda.min")
+  
+  #  PCR con componentes que expliquen al menos 80% de varianza en el train
+  # Recordando que las variables deben ser estandarizadas
+  X_train_pca <- model.matrix(formula_mod1, data = datos_train)[, -1]
+  pca_train <- prcomp(X_train_pca, scale. = TRUE)
+  
+  # Calcular varianza acumulada
+  var_acum <- cumsum(pca_train$sdev^2 / sum(pca_train$sdev^2))
+  k <- which(var_acum >= 0.8)[1]  # mínimo número de componentes
+  comp_train <- pca_train$x[, 1:k, drop = FALSE]
+  data_pca_train <- data.frame(brozek = datos_train$brozek, comp_train)
+  mod_pcr <- glm(brozek ~ ., data = data_pca_train, family = gaussian(link="identity"))
+  
+  # Predicción 
+  X_test_pca <- model.matrix(brozek ~ ., data = datos_test)[, -1]
+  # Centramos y estandarizamos
+  X_test_scaled <- scale(X_test_pca, center = pca_train$center, scale = pca_train$scale)
+  comp_test <- X_test_scaled %*% pca_train$rotation[, 1:k, drop = FALSE]
+  colnames(comp_test) <- colnames(comp_train)
+  data_pca_test <- as.data.frame(comp_test)
+  preds_pca[idx_test] <- predict(mod_pcr, newdata = data_pca_test, type = "response") # Predección
+}
+
+# Calculamos las métricas para cada modelo
+calcular_metricas <- function(reales, predichos) {
+  mse <- mean((reales - predichos)^2)
+  mae <- mean(abs(reales - predichos))
+  r2 <- cor(reales, predichos)^2
+  return(c(MSE = mse, MAE = mae, R2 = r2))
+}
+
+resultados <- data.frame(
+  Modelo = c(
+    "Efectos principales",
+    "Variables transformadas",
+    "BIC sobre modelo de efectos principales",
+    "BIC sobre modelo con variables transformadas",
+    "BIC sobre el modelo Gamma con liga log",
+    "Lasso de efectos principales",
+    "Lasso con las variables transformadas",
+    "PCR con al menos el 80% de varianza acumulada"
+  ),
+  rbind(
+    calcular_metricas(y, preds_mod1),
+    calcular_metricas(y, preds_mod2),
+    calcular_metricas(y, preds_mod1_BIC),
+    calcular_metricas(y, preds_mod2_BIC),
+    calcular_metricas(y, preds_gamma_BIC),
+    calcular_metricas(y, preds_lasso),
+    calcular_metricas(y, preds_lasso_comp),
+    calcular_metricas(y, preds_pca)
+  )
+)
+
+```
+
+```{r tabla_resultados}
+# Mostrar la tabla 
+kbl(resultados, booktabs = TRUE, align = "c", row.names = FALSE,
+    caption = "Poder predictivo de los modelos evaluados") %>%
+  kable_styling(latex_options = c("striped", "scale_down", "hold_position"))
+```
+
+```{r VarRep, include=FALSE}
+# Extraemos variables significativas del modelo de efectos principales 
+summary_mod1 <- summary(mod1)
+coef_mod1 <- summary_mod1$coefficients
+vars_significativas <- rownames(coef_mod1)[coef_mod1[, 4] < 0.05 & !is.na(coef_mod1[, 4])]
+vars_significativas <- vars_significativas[vars_significativas != "(Intercept)"]
+# Selección de los modelos
+seleccion <- list(
+  Lasso_simple = vars_ep,
+  Lasso_comp = vars_comp,
+  Efectos_principales_signif = vars_significativas
+)
+
+# Contamos las frecuencias
+lista <- unlist(seleccion)
+frec <- sort(table(lista), decreasing = TRUE)
+print(frec)
+
+# lista
+#      abdom         age       wrist       ankle      biceps     forearm        neck       thigh      adipos       chest 
+#         3           3           3           2           2           2           2           2           1           1 
+#     height         hip    I(age^2)  I(chest^2)    I(hip^2)   I(knee^2) I(weight^2) 
+#          1           1           1           1           1           1           1 
+
+```
+
+En la tabla \@ref(tab:tabla_resultados) se presentan los modelos y métricas que se mencionaron. El mejor modelo con las mejores medidas obtenidas fue el Lasso con las variables transformadas y selección de variables y de cerca o practicamente igual, también se encuentra el modelo de Lasso con efecto principales y su selección de variables. El modelo de efectos principales también tiene métricas muy buenas. Con base en estos $3$ modelos, las variables que se repiten en todos los modelos son:\
+- abdom\
+- age\
+- wrist\
+Mientras que salen en al menos $2$ modelos son las siguientes:\
+- ankle\
+- biceps\
+- forearm\
+- neck\
+- thigh\
+*Vea el chunk: VarRep*  
+Las demás variables, en general, las elevadas al cuadrado solo aparecen en el modelo Lasso con transformaciones. Los modelos Lasso incluyen una selección de variables. El modelo de efectos principales no. Conforme a esto, se considera pertinente realizar una selección de variables antes de medir el poder predictiva. El peor modelo fue el que se realizó mediante componentes principales que explicaron al menos el $80\%$ de la varianza total de los datos.
+
+Finalmente, el mejor modelo que consideramos mejor sacar a producción fue el Lasso con selección de variables y variables transformadas: (Se uso el modelo de coeficientes penalizados).  
+
+$$
+\begin{aligned}
+\widehat{\text{brozek}} = &\; 1.8010 \\
+& + 0.0377\,\text{age} + 0.000133\,\text{age}^2 \\
+& - 0.2937\,\text{height} - 0.1956\,\text{neck} \\
+& - 0.000126\,\text{chest}^2 + 0.7050\,\text{abdom} \\
+& + 0.01701\,\text{thigh} + 0.0704\,\text{biceps} \\
+& + 0.0891\,\text{forearm} - 1.4525\,\text{wrist}
+\end{aligned}
+$$
+
+La variable abdom (abdomen)es el mejor predictor, pues a mayor abdom, mayor brozek (grasa corporal), la variable height (altura) nos explica que a mayor altura, es menor la grasa corporal (es negativo), para age (edad), incluye su término cuadratico y quiere decir que el porcentaje de la grasa aumenta conforme la edad, para las variables biceps, forearm y thigh a mayor en estas variables existirá un pequeño aumento en la grasa corporal.  
+Las métricas son:  
+- MSE = 16.5608  
+- MAE = 3.3317  
+- $R^2 =0.7125$: El modelo explica el $71.25\%$ de la variabilidad del porcentaje de grasa en futuras observaciones.  
+
+Finalmente, por simplicidad, se escogería el modelo más simple, en este caso, el modelo Lasso de efectos principales, esto, pues tiene métricas similares al Lasso con variables transformadas, pero el primer modelo fue el anteriormente descrito.
