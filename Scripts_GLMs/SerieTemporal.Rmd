@@ -1,0 +1,297 @@
+---
+title: "Proyecto: Series de Tiempo"
+author: "Luis Antonio López Sánchez"
+output:
+  bookdown::pdf_document2:
+    number_sections: no
+    toc: no
+    highlight: tango
+    latex_engine: xelatex
+header-includes: 
+   - \usepackage{float}
+date: "10/05/2026"
+geometry: margin=1.0cm
+urlcolor: blue
+---
+```{r setup, include=FALSE}
+#Empezamos limpiando nuestro ambiente
+rm(list = ls(all.names = TRUE))
+
+
+# Configuración global de los bloques de código (chunk's)
+knitr::opts_chunk$set(
+	echo = FALSE,
+	fig.align = "center",
+	fig.dim = c(6.0, 4.0),
+	fig.pos = "H",
+#Agregamos configuraciones para evitar mensajes de advertencias y de errores en el archivo
+	message = FALSE,
+	warning = FALSE,
+	error = F
+)
+
+# Librerías
+library(astsa)  # Para análisis de gráficas     
+library(ggplot2)  # Para gráficos    
+library(ggthemes) # Extensión de ggplot2   
+library(dplyr)   # Para manipular datos     
+library(tseries) # Para análisis de series de tiempo      
+library(here)  # Para el archivo       
+library(forecast) # Para análisis y predicción    
+library(TSA) # Análisis de datos      
+```
+
+
+```{r, include =FALSE}
+# Cargamos nuestros datos
+data <-read.csv("C:/Users/admin/Downloads/Milk.csv")
+# No ocupamos la columna de pigs
+data$pigs <- NULL
+head(data)
+summary(data)
+
+```
+Se nos proporcionaron datos acerca de la producción mensual de leche en galones durante los años $1980- 1990$ en una granja de Manchester en periodos mensuales, es decir, $120$ meses. Nuestro objetivo es ajustar un modelo de series de tiempo que logre describir nuestros datos, iremos probando distintos y decidiremos el mejor mediante métricas como el _AIC_ o el _BIC_ según corresponda.  
+Obtenido nuestro modelo, vamos a predecir los siguientes $12$ puntos temporales o meses.  
+
+```{r, autoplot, fig.cap = "Serie de Tiempo: Primer vistazo"}
+datos <- ts(data[,2], start = c(1980, 1), frequency = 12)
+#Veamos nuestra serie
+autoplot(datos)
+
+```
+
+A partir de la figura \@ref(fig:autoplot), observamos que existe un patrón que va a la alza a mediados de cada año (aproximadamente), lo que sugiere que las mejores producciones se dan a mitad de los años, mientras que a inicios y finales se observan las peores producciones de leche. También se observa que, conforme se va avanzando en el tiempo, el volumen de la cantidad de leche aumenta cada vez más y más.  
+También notamos que existe un ciclo repetitivo muy claro: Cada año, la tendencia de producción tiende a aumentar y posterior tiende a decaer.  
+Además se puede decir que la serie tiene estacionalidad y una tendencia alcista, por lo que debemos considerar que tenemos una serie temporal multiplicativa. 
+
+```{r Análisis inicial, include =FALSE}
+# Queremos ver que modelo inicial probamos
+# Usamos 36 lags para no saturar al modelo
+acf(datos, lag.max = 36) # está en meses, se verán 3 años
+pacf(datos, lag.max = 36) # está en meses, se verán 3 años 
+
+# Periodograma
+period_datos <- periodogram(datos, plot = FALSE)
+df_period <- data.frame(freq = period_datos$freq, spec = period_datos$spec)
+
+ggplot(df_period, aes(x = freq, y = spec)) +
+  geom_line() +
+  labs(x = "Frecuencia", y = "Densidad espectral") +
+  theme_minimal()
+# Buscamos la frecuencia con mayor densidad omitiendo las frecuencias más bajas
+# Pues puede arrojar un error (decir que el periodo es 120)
+df <- df_period[df_period$freq > 0.02, ] # Queremos valores más altos que 0.02
+frec <- df$freq[which.max(df$spec)] # Elegimos el máximo
+
+# Calculamos el periodo exacto
+periodo_exacto <- 1 / frec
+print(periodo_exacto)
+# Confirmamos que tiene un periodo anual
+
+# DE por año
+años_grupo <- floor(time(datos))
+boxplot(datos ~ años_grupo,
+        col = "lightblue",
+        main = "Varianza",
+        xlab = "Año",
+        ylab =  "Producción")
+        
+```
+
+Ahora bien, en el chunk _Análisis inicial_, se podrá encontrar con un diagnostico de las gráficas del _ACF, el PACF y el periodograma_, esto, con el fin de comenzar a explorar diversos modelos que nos puedan ser de utilidad:  
+- El _ACF_ mostró una tendencia de decrecimiento entre periodos de tiempo iguales (12 meses), con patrones que se repiten de forma exacta en los lags $1,2$ y $3$. Lo que quiere decir que se tiene una serie con estacionalidad muy evidente.  
+- El _PACF_ mostró algo similar, al serie tiene una estacionalidad evidente. Nótese que en cada lag, el patrón se repite, a cada inicio de año, las líneas se van hacia abajo, aunque siendo menos evidente, pues las líneas se van haciendo más pequeñas.  
+- El _periodograma_ nos mostró lo que ya sabíamos: El periodo es de $12$ meses. Nunca está de más realizar este análisis.  
+- Como un extra, también se analizó la varianza y se halló que puede no ser constante, por lo que debemos de trabajar con una transformación de los datos. Esto se observó creando diagramas de caja y bigotes en el mismo chunk.  
+Todo este análisis sugiere que debemos trabajar con:  
+- Una transformación  
+- Una diferenciación.
+
+
+```{r BoxCox, include =FALSE}
+lambda <- BoxCox.lambda(datos)
+print(lambda)
+# 1.088402
+# No parece necesitar una transformación
+```
+En el chunk _BoxCox_ se investigó una posible transformación a los datos que nos pudiera ayudar en nuestro objetivo de conseguir la estacionariedad, el valor obtenido para la lambda fue de: $1.088402$, valor que está muy cerca de $1$, pero que sugiere que no necesitamos implementar una transformación a nuestros datos, aunque pueda verse como una contradicción, consideramos que por la escala de los datos, es totalmente pausible que la varianza aumente pero no lo suficiente como para requerir una transformación. 
+
+```{r Diferenciación, include=FALSE}
+# Aplicamos la diferencia estacional (12 meses = lag)
+datos_dif <- diff(datos, lag = 12)
+# Ahora la diferenciación estacionaria
+datos_est <- diff(datos_dif, differences = 1) # Y´t = Yt - Y_(t-1)
+```
+
+```{r SegAns, fig.cap= "Segundo análisis de la serie"}
+# 
+par(mfrow = c(1, 2))
+# Procedemos a ver el acf
+acf(datos_est, lag.max = 36, main = "Función de autocorrelación")
+# Vemos el pacf
+pacf(datos_est, lag.max = 36, main =  "F. de autocorrelación parcial")
+```
+
+Ahora bien, como se comentó anteriormente, también se realizó una diferenciación:  
+- Una diferenciación estacional: _Lag_ $=12$.  
+- Una diferenciación estacionaria, es decir: $Y ´_t = Y_t - Y_{t-1}$.  
+A partir de la figura \@ref(fig:SegAns) se presentan las gráficas del _ACF y el PACF_. En la primera, en el _ACF_, se puede ver que existe un componente MA(1). (Como regla del dedo, son las líneas que sobrepasan la línea azul), lo mismo aplica para el _PACF_, lo que puede significar que también exista un componente autorregresivo: AR(1) o una combinación de ambos, es decir, un modelo ARMA(1,1).  
+De nueva cuenta, volviendo al _ACF_, en el lag $1$, se observa que la línea sobrepasa por mucho a la recta azul, lo que sugiere que también existe un componente de media móvil estacional, MA(Q=1). De forma análoga, se tiene un componente AR(P=1). Veáse los chunks _Diferenciación y SegAns._  
+Después de este análisis, podemos ajustar distintos modelos con estos coeficientes y quedarnos con el mejor, mediante criterios de _AIC y BIC_:  
+Para esto, vamos a ajustar los siguientes modelos _SARIMA:_  
+- SARIMA$(0,1,1)(0,1,1)_{12}$  
+- SARIMA$(1,1,0)(0,1,1)_{12}$  
+- SARIMA$(1,1,1)(0,1,1)_{12}$  
+- SARIMA$(p, d, q)(P, D, Q)_{12}$: Un modelo que R calcula automáticamente. 
+
+```{r Modelos, include = FALSE}
+# Primer modelo
+mod_1 <- Arima(datos,
+               order = c(0,1,1), # (p,d,q)
+               seasonal = c(0,1,1)) # (P,D,Q)
+print(mod_1)
+
+# Segundo modelo
+mod_2 <- Arima(datos,
+               order = c(1,1,0),
+               seasonal = c(0,1,1))
+print(mod_2)
+
+# Tercer modelo
+
+mod_3 <- Arima(datos,
+               order = c(1,1,1),
+               seasonal = c(0,1,1))
+print(mod_3)
+
+# Modelo de R 
+
+mod_4 <- auto.arima(datos)
+print(mod_4)
+
+# Veamos el AIC
+AICs <- AIC(mod_1, mod_2, mod_3, mod_4)
+# El mejor modelo fue el obtenido por R, aunque por 0.014 de diferencia
+# Tenemos que ver que los residuales estén bien
+```
+
+```{r tabla1}
+# Librerias para la tabla
+library(knitr)
+library(kableExtra)
+
+# Extraemos los criterios de información de cada objeto de modelo
+AICs  <- c(AIC(mod_1), AIC(mod_2), AIC(mod_3), AIC(mod_4))
+BICs  <- c(BIC(mod_1), BIC(mod_2), BIC(mod_3), BIC(mod_4))
+
+
+# 3. Creamos el data.frame 
+tabla_criterios <- data.frame(
+  Modelo = c("Modelo 1", "Modelo 2", "Modelo 3", "Modelo 4"),
+  Estructura_SARIMA = c("SARIMA(0,1,1)(0,1,1)[12]", 
+                        "SARIMA(1,1,0)(0,1,1)[12]", 
+                        "SARIMA(1,1,1)(0,1,1)[12]", 
+                        "SARIMA(0,1,0)(0,1,1)[12]"),
+  AIC = round(AICs, 4),
+  BIC = round(BICs, 4),
+  stringsAsFactors = FALSE
+)
+
+# Generamos la tabla
+kbl(tabla_criterios, 
+    booktabs = TRUE, 
+    align = "c",
+    col.names = c("Objeto", "Estructura SARIMA", "AIC", "BIC"),
+    caption = "Comparación de Criterios de información") %>%
+  kable_styling(latex_options = c("striped", "scale_down", "hold_position"))
+
+```
+
+
+Después de revisar los modelos, se construyó la tabla \@ref(tab:tabla1) en dónde presentamos las métricas de selección de modelos anteriormente mencionadas, cabe destacar que todos los modelos tuvieron un _AIC_ idéntico entre sí, más aún, coincideron casi con el modelo que nos propuso _auto.arima_, lo cuál nos da una buena certeza de que hicimos nuestro trabajo bien. Finalmente, se revisaron los residuales de los modelos:  
+
+
+```{r Modelo4, fig.cap= "Residuales del modelo de auto.arima", results='hide'}
+# Con esta función es muy útil
+checkresiduals(mod_4)
+```
+En al figura \@ref(fig:Modelo4) se presentan los residuales del modelo. Nótese como ya no hay estacionalidad, pues ya no hay patrones y parece que está centrado en la media, además, no se ve tanta varianza grande. Los residuos parecen tener una distribución normal. El _ACF_ ya no presenta patrones de que se salga de la línea azul, lo cuál es muy bueno. Los residuales parecen ruido blanco.  
+Como comentario, vale la pena decir que en todos los modelos apareció un posible outlier alrededor del año de $1989$, se intentó aplicar la función _tsclean_, sin embargo, los resultados fueron exactamente iguales, es decir, que no se elimino a ningún outlier. La prueba de Ljung - Box arrojó un _p value_ $0.9169$, lo que significa que los residuos sí es ruido blanco. Véase más detalle en los chunks _Modelo1 y Modelo2_.  
+
+
+```{r Modelo2, include=FALSE}
+# Revisamos el modelo 2
+checkresiduals(mod_2)
+# Lo mismo que el modelo 4, todo bien.
+```
+
+```{r Modelo1, include =FALSE}
+checkresiduals(mod_1)
+# Lo mismo que el modelo 4
+```
+
+
+Lo que nos resta es realizar nuestra predicción, primero, queremos evaluar el poder predictivo de nuestro modelo SARIMA, por lo que, vamos a dividir nuestros datos en _training_ y _test_, el training constará de $108$ datos y _test_ constará de $12$ elementos, la idea, es que cuando con nuestros datos seccionados, nosotros podamos predecir con cierta confianza los datos que sabemos que ya tenemos. Vea los chunks _SarPred y SarPred2_
+
+```{r SarPred, include =FALSE}
+n <- length(datos)
+t <- n - 12
+# Datos de entrenamiento
+training <- subset(datos, end = t) # Termina en el 108
+test <- subset(datos, start = t +1) # empieza en el 109
+
+mod_pred <- Arima(training,  # Definimos el mismo SARIMA del modelo 4
+                  order = c(0,1,0), 
+                  seasonal = c(0,1,1))
+
+pronostico <- forecast(mod_pred, h = 12) # predecimos los valores de test
+
+# Calculamos las métricas de interés: 
+
+met <- accuracy(pronostico, test)
+print(met)
+print(pronostico)
+autoplot(pronostico) +
+  # Agregamos los datos reales del test en una línea roja para comparar
+  autolayer(test, series = "Datos Reales (Test)", color = "red", size = 0.8) +
+  labs(title = "Validación del Modelo SARIMA(0,1,0)(0,1,1)[12]",
+       x = "Año",
+       y = "Galones de Leche",
+       colour = "Leyenda") +
+  theme_minimal()
+```
+
+Ahora bien, nos interesa también compartir nuestros resultados de la predicción que hicimos mediante la división de los datos: En la figura \@ref(fig:SarPred2), se muestra que el modelo SARIMA logró predecir casi todos los datos reales que se ven en rojo, las bandas azules son los intervalos de confianza. Como se dijo, existe un probable outlier en el año de $1989$, pero no afecta mucho. 
+```{r SarPred2, fig.cap = "Train vs Test", results='hide'}
+mod_pred2 <-Arima(training,
+                  order = c(0,1,1), 
+                  seasonal = c(0,1,1))
+
+pronostico_2 <- forecast(mod_pred2, h = 12)
+met_2 <- accuracy(pronostico_2, test)
+print(pronostico_2)
+
+autoplot(pronostico_2) +
+  # Agregamos los datos reales del test en una línea roja para comparar
+  autolayer(test, series = "Test", color = "red", size = 0.8) +
+  labs(title = "Validación del Modelo SARIMA(0,1,1)(0,1,1)[12]",
+       x = "Año",
+       y = "Galones de Leche",
+       colour = "Leyenda") +
+  theme_minimal()
+```
+
+Finalmente, se muestra la predicción para los siguientes $12$ meses. Elegimos el segundo mejor modelo pues se consideró que tiene mejor poder predictivo que el porpuesto por R.  Nótese que en la figura  \@ref(fig:Pred) se muestra lo que queríamos enseñar, una predicción para nuestros datos, tomando que en el chunk, _SarPred2_ obtuvimos una buena aproximación con nuestros datos de entrenamiento, podemos decir que este modelo tiene una confiabilidad excelente.
+
+```{r Pred, fig.cap="Predicción"}
+# Usamos forecast
+preds <- forecast(mod_2, h=12)
+
+# Autoplot
+autoplot(preds) +
+  theme_minimal() +
+  labs(title = "Predicción de galones de leche",
+       x = "Año",
+       y = "Galones de leche")
+```
